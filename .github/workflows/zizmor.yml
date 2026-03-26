@@ -1,0 +1,35 @@
+name: Org Zizmor
+
+on:
+  pull_request:
+  merge_group:
+
+permissions: {}
+
+jobs:
+  zizmor:
+    name: Zizmor GitHub Actions static analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout org workflow repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: archestra-ai/.github
+          path: .org-github
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # v0.5.2
+        with:
+          advanced-security: false
+          config: .org-github/.github/zizmor.yml
+          fail-on-no-inputs: false
+          persona: auditor
