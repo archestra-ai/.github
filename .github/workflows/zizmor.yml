@@ -1,4 +1,4 @@
-name: Org Zizmor
+name: Zizmor GitHub Actions Static Analysis
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ permissions: {}
 
 jobs:
   zizmor:
-    name: Zizmor GitHub Actions static analysis
+    name: Zizmor
     runs-on: ubuntu-latest
     permissions:
       actions: read
