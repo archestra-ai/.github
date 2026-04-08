@@ -6,6 +6,10 @@ on:
   pull_request:
   merge_group:
 
+concurrency:
+  group: zizmor-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions: {}
 
 jobs:
@@ -13,8 +17,8 @@ jobs:
     name: Zizmor
     runs-on: ubuntu-latest
     permissions:
-      actions: read
-      contents: read
+      actions: read # read workflow metadata for zizmor's online audits
+      contents: read # read workflow files from private repositories
     steps:
       - name: Checkout target repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
