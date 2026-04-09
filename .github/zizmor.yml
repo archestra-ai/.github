@@ -1,3 +1,5 @@
 rules:
+  # We don't currently use GitHub Environments across our repos, so this audit
+  # creates noise without improving our actual workflow policy posture.
   secrets-outside-env:
     disable: true
