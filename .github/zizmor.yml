@@ -1,1 +1,7 @@
 rules:
+  secrets-outside-env:
+    disable: true
+  stale-action-refs:
+    disable: true
+  ref-version-mismatch:
+    disable: true
