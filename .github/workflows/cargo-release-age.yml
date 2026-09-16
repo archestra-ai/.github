@@ -6,6 +6,10 @@ on:
     branches: [main]
   merge_group:
 
+concurrency:
+  group: cargo-release-age-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions: {}
 
 jobs:
