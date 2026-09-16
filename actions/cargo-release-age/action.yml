@@ -1,0 +1,36 @@
+name: Cargo release age
+description: Reject newly locked crates.io versions published less than seven days ago.
+inputs:
+  base-sha:
+    description: Trusted base commit SHA used to identify newly introduced versions.
+    required: true
+  lockfiles:
+    description: Newline-separated repository-relative Cargo.lock paths.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Check new Cargo dependency release ages
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BASE_SHA: ${{ inputs.base-sha }}
+        LOCKFILES: ${{ inputs.lockfiles }}
+      run: |
+        if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::base-sha must be a full commit SHA."
+          exit 1
+        fi
+        args=()
+        while IFS= read -r lockfile; do
+          if [[ -n "$lockfile" ]]; then
+            args+=(--lockfile "$lockfile")
+          fi
+        done <<< "$LOCKFILES"
+        if [[ ${#args[@]} -eq 0 ]]; then
+          echo "::error::At least one lockfile is required."
+          exit 1
+        fi
+        git fetch --no-tags --depth=1 origin "$BASE_SHA"
+        python3 "$ACTION_PATH/check-cargo-release-age.py" --base-ref "$BASE_SHA" "${args[@]}"

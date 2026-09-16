@@ -12,3 +12,9 @@ The workflow checks out:
 - this repository for the centrally managed `zizmor` config
 
 This keeps the scan policy consistent across repositories and avoids per-repository suppressions or drift.
+
+## Shared Actions
+
+- [Cargo Release Age](actions/cargo-release-age/README.md): enforces a seven-day
+  minimum publication age for newly introduced crates.io versions. Consumers pin
+  the action to a reviewed commit; the checker and behavior tests live here.
