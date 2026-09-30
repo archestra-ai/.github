@@ -3,8 +3,8 @@ name: Claude PR Review Worker
 on:
   workflow_call:
     inputs:
-      setup_environment:
-        description: Install the caller's platform pnpm dependencies and copy its .env.example
+      setup_repository:
+        description: Run the caller's .github/actions/setup-claude-review action after checkout
         type: boolean
         default: false
       use_github_token:
@@ -55,33 +55,10 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Setup pnpm
-        if: steps.token.outputs.available == 'true' && inputs.setup_environment
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-        with:
-          version: 11.9.0
-          run_install: false
-          dest: ${{ runner.temp }}/setup-pnpm
-
-      - name: Setup Node.js
-        if: steps.token.outputs.available == 'true' && inputs.setup_environment
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: "24.11.1"
-          cache: pnpm
-          cache-dependency-path: platform/pnpm-lock.yaml
-
-      - name: Install platform dependencies
-        if: steps.token.outputs.available == 'true' && inputs.setup_environment
-        working-directory: platform
-        shell: bash
-        run: pnpm install --frozen-lockfile --prefer-offline --ignore-scripts
-
-      - name: Setup platform environment
-        if: steps.token.outputs.available == 'true' && inputs.setup_environment
-        working-directory: platform
-        shell: bash
-        run: cp .env.example .env
+      # Local actions resolve from the checked-out caller repository.
+      - name: Setup caller repository
+        if: steps.token.outputs.available == 'true' && inputs.setup_repository
+        uses: ./.github/actions/setup-claude-review
 
       - name: PR Review with Claude
         if: steps.token.outputs.available == 'true'

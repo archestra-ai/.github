@@ -3,8 +3,8 @@ name: Claude Core Team Review
 on:
   workflow_call:
     inputs:
-      setup_environment:
-        description: Install the caller's platform pnpm dependencies and copy its .env.example
+      setup_repository:
+        description: Run the caller's .github/actions/setup-claude-review action after checkout
         type: boolean
         default: false
       use_github_token:
@@ -47,7 +47,7 @@ jobs:
       id-token: write # Allow the worker to authenticate as the Claude GitHub App.
     uses: ./.github/workflows/claude-coreteam-review-shared.yml
     with:
-      setup_environment: ${{ inputs.setup_environment }}
+      setup_repository: ${{ inputs.setup_repository }}
       use_github_token: ${{ inputs.use_github_token }}
       use_sticky_comment: ${{ inputs.use_sticky_comment }}
     secrets:
@@ -62,7 +62,7 @@ jobs:
       id-token: write # Allow the worker to authenticate as the Claude GitHub App.
     uses: ./.github/workflows/claude-coreteam-review-shared.yml
     with:
-      setup_environment: ${{ inputs.setup_environment }}
+      setup_repository: ${{ inputs.setup_repository }}
       use_github_token: ${{ inputs.use_github_token }}
       use_sticky_comment: ${{ inputs.use_sticky_comment }}
     secrets:
@@ -77,7 +77,7 @@ jobs:
       id-token: write # Allow the worker to authenticate as the Claude GitHub App.
     uses: ./.github/workflows/claude-coreteam-review-shared.yml
     with:
-      setup_environment: ${{ inputs.setup_environment }}
+      setup_repository: ${{ inputs.setup_repository }}
       use_github_token: ${{ inputs.use_github_token }}
       use_sticky_comment: ${{ inputs.use_sticky_comment }}
     secrets:

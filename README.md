@@ -61,11 +61,17 @@ Pass these optional `with` inputs on the caller job:
 
 | Input | Default | Purpose |
 | --- | --- | --- |
-| `setup_environment` | `false` | Install Archestra's `platform/` pnpm dependencies and copy `.env.example`. |
+| `setup_repository` | `false` | Run the caller-owned `.github/actions/setup-claude-review` action after checkout. |
 | `use_github_token` | `false` | Use `github-actions[bot]` when the Claude GitHub App is unavailable. |
 | `use_sticky_comment` | `true` | Update a sticky review comment. |
 
-Archestra sets `setup_environment: true`. OpenAPPA sets `use_github_token: true` and `use_sticky_comment: false`. Keep the caller and worker concurrency groups distinct; matching groups can cancel the caller.
+Archestra sets `setup_repository: true`. OpenAPPA sets `use_github_token: true` and `use_sticky_comment: false`. Keep the caller and worker concurrency groups distinct; matching groups can cancel the caller.
+
+### Repository Setup
+
+Callers own their dependency installation and environment configuration. To enable setup, set `setup_repository: true` and provide a composite action at `.github/actions/setup-claude-review/action.yml` in the caller repository. The shared worker runs it after checkout, before Claude, in the same job. A separate caller job cannot prepare the worker's filesystem or installed tools.
+
+Archestra's action delegates to its existing `.github/actions/setup-env`. Other repositories can provide their own action or leave setup disabled. With setup disabled, the caller needs no setup action. The shared workflow makes no assumptions about package managers, language versions, or repository layout.
 
 ### Organization Secret Setup
 
