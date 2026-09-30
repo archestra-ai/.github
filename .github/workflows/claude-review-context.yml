@@ -1,0 +1,28 @@
+name: Claude Review Context
+
+on:
+  workflow_call:
+    outputs:
+      secret_name:
+        description: OAuth secret name for the PR author's GitHub handle
+        value: ${{ jobs.author.outputs.secret_name }}
+
+permissions: {}
+
+jobs:
+  author:
+    name: Resolve PR Author
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      secret_name: ${{ steps.author.outputs.secret_name }}
+    steps:
+      - name: Normalize the author's handle for a secret name
+        id: author
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        shell: bash
+        run: |
+          if [[ -z "$AUTHOR" ]]; then exit 0; fi
+          author="${AUTHOR//-/_}"
+          echo "secret_name=CLAUDE_CODE_OAUTH_TOKEN_${author^^}" >> "$GITHUB_OUTPUT"
