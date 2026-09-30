@@ -21,15 +21,9 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
 
 ## Claude PR Reviews
 
-[claude-coreteam-review.yml](.github/workflows/claude-coreteam-review.yml) routes reviews to the PR author's personal OAuth token. The shared worker preserves the `/review-pr` prompt, model, tools, and progress output. Unknown authors, drafts, WIP titles, and fork PRs are skipped. Missing tokens produce a notice and skip the review; another person's token is never substituted.
+[claude-coreteam-review.yml](.github/workflows/claude-coreteam-review.yml) routes reviews to the PR author's personal OAuth token. The shared worker preserves the `/review-pr` prompt, model, tools, and progress output. Drafts, WIP titles, and fork PRs are skipped. Missing tokens produce a notice and skip the review; another person's token is never substituted.
 
-| GitHub author | Organization Actions secret |
-| --- | --- |
-| `iskhakov` | `ILDAR_CLAUDE_CODE_OAUTH_TOKEN` |
-| `joeyorlando` | `JOEY_CLAUDE_CODE_OAUTH_TOKEN` |
-| `piercypixel` | `MARK_CLAUDE_CODE_OAUTH_TOKEN` |
-
-Each caller needs access to these organization secrets. Secrets stored only in this repository are unavailable to callers. The workflow passes only the selected author's secret to the review worker.
+Each author adds an organization Actions secret named `CLAUDE_CODE_OAUTH_TOKEN_<GitHub user ID>`. Numeric IDs remain stable across username changes and work for usernames containing hyphens. The caller selects the PR author's secret and passes only that token. No user list or routing configuration is needed.
 
 ### Caller Workflow
 
@@ -51,10 +45,9 @@ jobs:
       pull-requests: write # Publish PR review comments.
       id-token: write # Authenticate through the Claude GitHub App.
     uses: archestra-ai/.github/.github/workflows/claude-coreteam-review.yml@COMMIT_SHA
+    # This caller-side lookup passes only the selected token to the worker.
     secrets:
-      ILDAR_CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.ILDAR_CLAUDE_CODE_OAUTH_TOKEN }}
-      JOEY_CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.JOEY_CLAUDE_CODE_OAUTH_TOKEN }}
-      MARK_CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.MARK_CLAUDE_CODE_OAUTH_TOKEN }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', github.event.pull_request.user.id)] }} # zizmor: ignore[overprovisioned-secrets,obfuscation]
 ```
 
 Pass these optional `with` inputs on the caller job:
@@ -75,18 +68,16 @@ Archestra's action delegates to its existing `.github/actions/setup-env`. Other 
 
 ### Organization Secret Setup
 
-Generate a long-lived token with `claude setup-token`. Store each person's token in their organization Actions secret using the CLI's interactive prompt:
+Generate a long-lived token with `claude setup-token`. With `gh` signed into your own GitHub account, store the token using the CLI's interactive prompt:
 
 ```bash
-gh secret set ILDAR_CLAUDE_CODE_OAUTH_TOKEN --org archestra-ai --visibility all
-gh secret set JOEY_CLAUDE_CODE_OAUTH_TOKEN --org archestra-ai --visibility all
-gh secret set MARK_CLAUDE_CODE_OAUTH_TOKEN --org archestra-ai --visibility all
+gh secret set "CLAUDE_CODE_OAUTH_TOKEN_$(gh api user --jq .id)" --org archestra-ai --visibility all
 ```
 
 `--visibility all` makes these secrets available to current and future organization repositories, including public repositories. Repository secrets with matching names take precedence. Repositories using Claude GitHub App authentication need the app installed.
 
 ### Maintaining The Shared Implementation
 
-Author routing and its behavior tests live in `actions/claude-review-context`. The Claude action version and default model live in `actions/run-claude`. When either action changes, publish its commit and update the reusable workflow's action pins. Update consumer pins when publishing a new reusable workflow revision.
+The Claude action version and default model live in `actions/run-claude`. When the action changes, publish its commit and update the reusable workflow's action pin. Update consumer pins when publishing a new reusable workflow revision.
 
-Run routing tests with `node --test actions/claude-review-context/select-token.test.cjs`. Validate workflow syntax with actionlint and security policy with zizmor. Live authentication and comment publication require a GitHub Actions run in each caller repository.
+Validate workflow syntax with actionlint and security policy with zizmor. Live authentication and comment publication require a GitHub Actions run in each caller repository.
