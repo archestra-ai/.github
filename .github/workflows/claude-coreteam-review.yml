@@ -1,0 +1,84 @@
+name: Claude Core Team Review
+
+on:
+  workflow_call:
+    inputs:
+      setup_environment:
+        description: Install the caller's platform pnpm dependencies and copy its .env.example
+        type: boolean
+        default: false
+      use_github_token:
+        description: Use github-actions bot authentication instead of the Claude GitHub App
+        type: boolean
+        default: false
+      use_sticky_comment:
+        description: Update a sticky review comment
+        type: boolean
+        default: true
+    secrets:
+      ILDAR_CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      JOEY_CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      MARK_CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+
+permissions: {}
+
+jobs:
+  determine-token:
+    name: Determine Token
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      secret_name: ${{ steps.author.outputs.secret_name }}
+    steps:
+      - name: Select the PR author's credential
+        id: author
+        uses: archestra-ai/.github/actions/claude-review-context@3287f712b7b14c74f9c2305f3c4c0afa4615c0ff
+
+  ildar-pr-review:
+    needs: determine-token
+    if: needs.determine-token.outputs.secret_name == 'ILDAR_CLAUDE_CODE_OAUTH_TOKEN'
+    permissions:
+      contents: read
+      pull-requests: write # Allow the worker to publish review comments.
+      id-token: write # Allow the worker to authenticate as the Claude GitHub App.
+    uses: ./.github/workflows/claude-coreteam-review-shared.yml
+    with:
+      setup_environment: ${{ inputs.setup_environment }}
+      use_github_token: ${{ inputs.use_github_token }}
+      use_sticky_comment: ${{ inputs.use_sticky_comment }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.ILDAR_CLAUDE_CODE_OAUTH_TOKEN }}
+
+  joey-pr-review:
+    needs: determine-token
+    if: needs.determine-token.outputs.secret_name == 'JOEY_CLAUDE_CODE_OAUTH_TOKEN'
+    permissions:
+      contents: read
+      pull-requests: write # Allow the worker to publish review comments.
+      id-token: write # Allow the worker to authenticate as the Claude GitHub App.
+    uses: ./.github/workflows/claude-coreteam-review-shared.yml
+    with:
+      setup_environment: ${{ inputs.setup_environment }}
+      use_github_token: ${{ inputs.use_github_token }}
+      use_sticky_comment: ${{ inputs.use_sticky_comment }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.JOEY_CLAUDE_CODE_OAUTH_TOKEN }}
+
+  mark-pr-review:
+    needs: determine-token
+    if: needs.determine-token.outputs.secret_name == 'MARK_CLAUDE_CODE_OAUTH_TOKEN'
+    permissions:
+      contents: read
+      pull-requests: write # Allow the worker to publish review comments.
+      id-token: write # Allow the worker to authenticate as the Claude GitHub App.
+    uses: ./.github/workflows/claude-coreteam-review-shared.yml
+    with:
+      setup_environment: ${{ inputs.setup_environment }}
+      use_github_token: ${{ inputs.use_github_token }}
+      use_sticky_comment: ${{ inputs.use_sticky_comment }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.MARK_CLAUDE_CODE_OAUTH_TOKEN }}

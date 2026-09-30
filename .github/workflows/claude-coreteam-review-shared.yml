@@ -1,0 +1,96 @@
+name: Claude PR Review Worker
+
+on:
+  workflow_call:
+    inputs:
+      setup_environment:
+        description: Install the caller's platform pnpm dependencies and copy its .env.example
+        type: boolean
+        default: false
+      use_github_token:
+        description: Use github-actions bot authentication instead of the Claude GitHub App
+        type: boolean
+        default: false
+      use_sticky_comment:
+        description: Update a sticky review comment
+        type: boolean
+        default: true
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+
+permissions: {}
+
+# Different from the caller's group to avoid cancelling the caller itself.
+concurrency:
+  group: claude-coreteam-review-shared-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-review:
+    name: PR Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write # Publish PR review comments.
+      id-token: write # Claude GitHub App authentication when use_github_token is false.
+    steps:
+      - name: Check credential availability
+        id: token
+        env:
+          CLAUDE_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        shell: bash
+        run: |
+          if [[ -n "$CLAUDE_TOKEN" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No OAuth token is available for this PR author. Grant this repository access to the author's organization secret."
+          fi
+
+      - name: Checkout caller repository
+        if: steps.token.outputs.available == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup pnpm
+        if: steps.token.outputs.available == 'true' && inputs.setup_environment
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          version: 11.9.0
+          run_install: false
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - name: Setup Node.js
+        if: steps.token.outputs.available == 'true' && inputs.setup_environment
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24.11.1"
+          cache: pnpm
+          cache-dependency-path: platform/pnpm-lock.yaml
+
+      - name: Install platform dependencies
+        if: steps.token.outputs.available == 'true' && inputs.setup_environment
+        working-directory: platform
+        shell: bash
+        run: pnpm install --frozen-lockfile --prefer-offline --ignore-scripts
+
+      - name: Setup platform environment
+        if: steps.token.outputs.available == 'true' && inputs.setup_environment
+        working-directory: platform
+        shell: bash
+        run: cp .env.example .env
+
+      - name: PR Review with Claude
+        if: steps.token.outputs.available == 'true'
+        uses: archestra-ai/.github/actions/run-claude@3287f712b7b14c74f9c2305f3c4c0afa4615c0ff
+        with:
+          prompt: "/review-pr REPO: ${{ github.repository }} PR_NUMBER: ${{ github.event.pull_request.number }}"
+          allowed_tools: "Read,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ inputs.use_github_token && github.token || '' }}
+          use_sticky_comment: ${{ inputs.use_sticky_comment }}
+          track_progress: "true"
+          show_full_output: "true"
