@@ -78,14 +78,14 @@ Archestra's action delegates to its existing `.github/actions/setup-env`. Other 
 GitHub cannot return existing repository secret values. Each token owner must supply their token again through organization Actions settings or the CLI's interactive prompt. Do not put token values in workflow files, command arguments, or PR descriptions.
 
 ```bash
-gh secret set ILDAR_CLAUDE_CODE_OAUTH_TOKEN --org archestra-ai --visibility selected --repos archestra,OpenAPPA
-gh secret set JOEY_CLAUDE_CODE_OAUTH_TOKEN --org archestra-ai --visibility selected --repos archestra,OpenAPPA
-gh secret set MARK_CLAUDE_CODE_OAUTH_TOKEN --org archestra-ai --visibility selected --repos archestra,OpenAPPA
+gh secret set ILDAR_CLAUDE_CODE_OAUTH_TOKEN --org archestra-ai --visibility all
+gh secret set JOEY_CLAUDE_CODE_OAUTH_TOKEN --org archestra-ai --visibility all
+gh secret set MARK_CLAUDE_CODE_OAUTH_TOKEN --org archestra-ai --visibility all
 ```
 
 Publish the shared actions and workflows before merging caller changes. Preserve the action commits referenced by the workflows when merging; avoid squashing away pinned commits. Configure organization secrets for both caller repositories. Then merge the callers and verify a review in each repository. The Claude GitHub App must remain installed in repositories using its authentication mode.
 
-Repository secrets with matching names override organization secrets. Remove those repository copies after organization setup to use the shared values. Verify a subsequent review after removing them. Keep organization access limited to intended callers; add more repositories when they adopt the workflow. Existing Archestra mention workflows resolve the same secret names and can use these organization secrets too.
+Repository secrets with matching names override organization secrets. Remove those repository copies after organization setup to use the shared values. Verify a subsequent review after removing them. With `--visibility all`, current and future organization repositories can use these secrets, including public repositories. This access is not limited to the review workflow. For a restricted rollout, use `--visibility selected --repos archestra,OpenAPPA` and add each new caller to the access list. Omitting `--visibility` defaults to private repositories only. Existing Archestra mention workflows resolve the same secret names and can use these organization secrets too.
 
 ### Maintaining The Shared Implementation
 
