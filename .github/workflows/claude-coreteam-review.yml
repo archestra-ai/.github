@@ -2,19 +2,6 @@ name: Claude Core Team Review
 
 on:
   workflow_call:
-    inputs:
-      setup_repository:
-        description: Run the caller's .github/actions/setup-claude-review action after checkout
-        type: boolean
-        default: false
-      use_github_token:
-        description: Use github-actions bot authentication instead of the Claude GitHub App
-        type: boolean
-        default: false
-      use_sticky_comment:
-        description: Update a sticky review comment
-        type: boolean
-        default: true
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         required: false
@@ -41,7 +28,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write # Publish PR review comments.
-      id-token: write # Claude GitHub App authentication when use_github_token is false.
+      id-token: write # Authenticate as the Claude GitHub App.
     steps:
       - name: Check credential availability
         id: token
@@ -62,11 +49,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      # Local actions resolve from the checked-out caller repository.
-      - name: Setup caller repository
-        if: steps.token.outputs.available == 'true' && inputs.setup_repository
-        uses: ./.github/actions/setup-claude-review
-
       - name: PR Review with Claude
         if: steps.token.outputs.available == 'true'
         # Internal action pinned to its implementation commit; no release tag exists.
@@ -75,7 +57,6 @@ jobs:
           prompt: "/review-pr REPO: ${{ github.repository }} PR_NUMBER: ${{ github.event.pull_request.number }}"
           allowed_tools: "Read,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ inputs.use_github_token && github.token || '' }}
-          use_sticky_comment: ${{ inputs.use_sticky_comment }}
+          use_sticky_comment: "true"
           track_progress: "true"
           show_full_output: "true"
