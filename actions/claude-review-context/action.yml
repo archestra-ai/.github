@@ -1,0 +1,15 @@
+name: Select Claude review credential
+description: Select the PR author's credential name without reading any secrets
+outputs:
+  secret_name:
+    description: Allowlisted OAuth secret name, or empty when review should be skipped
+    value: ${{ steps.select.outputs.secret_name }}
+runs:
+  using: composite
+  steps:
+    - name: Select credential name
+      id: select
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: node "$ACTION_PATH/select-token.cjs"
