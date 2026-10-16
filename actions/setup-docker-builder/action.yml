@@ -1,0 +1,56 @@
+name: Setup Docker builder and cache
+description: Provider-compatible Docker cache routing and an optional native image store for local smoke tests.
+inputs:
+  cache-scope:
+    description: Stable cache key per image/workload and native architecture. Empty disables generated cache specs.
+    default: ""
+  cache-mode:
+    description: Export min (final image) or max (including intermediate stages).
+    default: min
+  cache-write:
+    description: auto writes only on default-branch pushes/manual runs; true/false explicitly selects a writer/reader.
+    default: auto
+  driver:
+    description: docker-container, or docker for native builds loaded into the runner for tests. docker requires a fresh Linux runner without containers.
+    default: docker-container
+outputs:
+  name:
+    description: Buildx builder name.
+    value: ${{ steps.builder.outputs.name }}
+  cache-from:
+    description: Provider-compatible GHA cache import specification.
+    value: ${{ steps.cache.outputs.cache-from }}
+  cache-to:
+    description: Cache export specification, empty for readers.
+    value: ${{ steps.cache.outputs.cache-to }}
+  cache-write:
+    description: Whether this job should export caches.
+    value: ${{ steps.cache.outputs.cache-write }}
+runs:
+  using: composite
+  steps:
+    - name: Resolve Docker cache policy
+      id: cache
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CACHE_SCOPE: ${{ inputs.cache-scope }}
+        CACHE_MODE: ${{ inputs.cache-mode }}
+        CACHE_WRITE: ${{ inputs.cache-write }}
+        BUILDER_DRIVER: ${{ inputs.driver }}
+        EVENT_NAME: ${{ github.event_name }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: python3 "$ACTION_PATH/cache-policy.py"
+
+    - name: Enable native Docker image store
+      if: inputs.driver == 'docker'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: sudo python3 "$ACTION_PATH/enable-containerd.py"
+
+    - name: Set up Docker Buildx
+      id: builder
+      uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
+      with:
+        driver: ${{ inputs.driver }}

@@ -1,0 +1,105 @@
+name: Docker Cache Contract
+on:
+  pull_request:
+    paths: ["actions/setup-docker-builder/**", ".github/workflows/docker-cache.yml"]
+  push:
+    branches: [main]
+    paths: ["actions/setup-docker-builder/**", ".github/workflows/docker-cache.yml"]
+  merge_group:
+permissions: {}
+concurrency:
+  group: docker-cache-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s actions/setup-docker-builder -p 'test_*.py'
+  cache:
+    name: Cold/warm cache (${{ matrix.driver }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: [docker-container, docker]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Create cache probe
+        run: |
+          mkdir -p /tmp/cache-probe
+          cat > /tmp/cache-probe/Dockerfile <<'EOF'
+          FROM busybox:1.37
+          RUN cat /proc/sys/kernel/random/uuid > /cache-marker
+          EOF
+      - name: Set up cold builder
+        id: cold-builder
+        uses: ./actions/setup-docker-builder
+        with:
+          driver: ${{ matrix.driver }}
+          cache-scope: contract-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.driver }}
+          # The isolated probe deliberately creates a cache in this run.
+          cache-write: "true"
+      - name: Populate cache
+        id: cold
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        with:
+          context: /tmp/cache-probe
+          load: true
+          tags: cache-probe:test
+          provenance: false
+          build-args: SOURCE_DATE_EPOCH=0
+          cache-to: ${{ steps.cold-builder.outputs.cache-to }}
+      - name: Remove runner-local build state
+        env:
+          DRIVER: ${{ matrix.driver }}
+          BUILDER: ${{ steps.cold-builder.outputs.name }}
+        run: |
+          docker image rm cache-probe:test
+          if [[ "$DRIVER" == docker-container ]]; then
+            docker buildx rm "$BUILDER"
+          else
+            docker builder prune --all --force
+          fi
+      - name: Set up warm builder
+        id: warm-builder
+        uses: ./actions/setup-docker-builder
+        with:
+          driver: ${{ matrix.driver }}
+          cache-scope: contract-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.driver }}
+          cache-write: "false"
+      - name: Restore cache and load image for tests
+        id: warm
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        with:
+          context: /tmp/cache-probe
+          load: true
+          tags: cache-probe:test
+          provenance: false
+          build-args: SOURCE_DATE_EPOCH=0
+          cache-from: ${{ steps.warm-builder.outputs.cache-from }}
+      - name: Verify cache reuse and runnable image
+        env:
+          COLD: ${{ steps.cold.outputs.imageid }}
+          WARM: ${{ steps.warm.outputs.imageid }}
+          CACHE_TO: ${{ steps.warm-builder.outputs.cache-to }}
+        run: |
+          # Without reuse, RUN writes a new random UUID and image ID changes.
+          test -n "$COLD"
+          test "$COLD" = "$WARM"
+          test -z "$CACHE_TO"
+          docker run --rm cache-probe:test test -s /cache-marker

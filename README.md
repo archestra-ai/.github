@@ -15,6 +15,8 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
 
 ## Shared Actions
 
+- [Docker Builder and Cache](actions/setup-docker-builder/README.md): provider-compatible
+  cache routing, designated writers, and an optional native image store for local tests.
 - [Cargo Release Age](actions/cargo-release-age/README.md): enforces a seven-day
   minimum publication age for newly introduced crates.io versions. Consumers pin
   the action to a reviewed commit; the checker and behavior tests live here.
