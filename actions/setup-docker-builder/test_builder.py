@@ -56,6 +56,24 @@ class CachePolicy(unittest.TestCase):
         self.assertFalse(self.resolve(scope="")["cache-from"])
         self.assertFalse(self.resolve(scope="")["cache-to"])
 
+    def test_registry_cache_is_repository_scoped_and_forks_use_gha(self):
+        result = self.resolve(backend="ghcr", repository="Archestra-AI/Infra")
+        self.assertEqual(result["cache-from"], "type=registry,ref=ghcr.io/archestra-ai/infra-buildkit-cache:runtime-amd64")
+        self.assertIn("compression=zstd,compression-level=1,force-compression=true", result["cache-to"])
+        self.assertIn("image-manifest=true", result["cache-to"])
+        reader = self.resolve(backend="ghcr", repository="owner/repo", event="pull_request",
+                              pr_head_repository="owner/repo")
+        self.assertEqual(reader["cache-backend"], "ghcr")
+        self.assertFalse(reader["cache-to"])
+        fork = self.resolve(backend="ghcr", repository="owner/repo", event="pull_request",
+                            pr_head_repository="fork/repo")
+        self.assertEqual(fork["cache-backend"], "gha")
+        self.assertNotIn("registry", fork["cache-from"])
+        for invalid in [dict(backend="unknown"), dict(backend="ghcr", repository="owner/repo,evil=1"),
+                        dict(backend="ghcr", repository="owner/repo", scope="")]:
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.resolve(**invalid)
+
     def test_invalid_specs_cannot_inject_additional_cache_parameters_or_outputs(self):
         for args in [dict(scope="image,version=2"), dict(scope="image\ncache-write=true"),
                      dict(mode="anything"), dict(write="yes"), dict(driver="remote")]:

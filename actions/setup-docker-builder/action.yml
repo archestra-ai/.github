@@ -4,6 +4,9 @@ inputs:
   cache-scope:
     description: Stable cache key per image/workload and native architecture. Empty disables generated cache specs.
     default: ""
+  cache-backend:
+    description: gha uses the runner cache service; ghcr uses a private per-repository registry cache compressed with zstd. ghcr requires packages read/write permission in the caller.
+    default: gha
   cache-mode:
     description: Export min (final image) or max (including intermediate stages).
     default: min
@@ -18,11 +21,14 @@ outputs:
     description: Buildx builder name.
     value: ${{ steps.builder.outputs.name }}
   cache-from:
-    description: Provider-compatible GHA cache import specification.
+    description: Cache import specification for the selected backend.
     value: ${{ steps.cache.outputs.cache-from }}
   cache-to:
     description: Cache export specification, empty for readers.
     value: ${{ steps.cache.outputs.cache-to }}
+  cache-backend:
+    description: Resolved backend (fork PRs fall back to the isolated GHA cache).
+    value: ${{ steps.cache.outputs.cache-backend }}
   cache-write:
     description: Whether this job should export caches.
     value: ${{ steps.cache.outputs.cache-write }}
@@ -35,12 +41,23 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
         CACHE_SCOPE: ${{ inputs.cache-scope }}
+        CACHE_BACKEND: ${{ inputs.cache-backend }}
+        REPOSITORY: ${{ github.repository }}
+        PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         CACHE_MODE: ${{ inputs.cache-mode }}
         CACHE_WRITE: ${{ inputs.cache-write }}
         BUILDER_DRIVER: ${{ inputs.driver }}
         EVENT_NAME: ${{ github.event_name }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: python3 "$ACTION_PATH/cache-policy.py"
+
+    - name: Authenticate repository cache
+      if: steps.cache.outputs.cache-backend == 'ghcr'
+      uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
 
     - name: Enable native Docker image store
       if: inputs.driver == 'docker'

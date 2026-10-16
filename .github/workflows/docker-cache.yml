@@ -58,7 +58,8 @@ jobs:
           DOCKER_BUILD_RECORD_UPLOAD: "false"
         with:
           context: /tmp/cache-probe
-          load: true
+          load: ${{ matrix.driver == 'docker-container' }}
+          outputs: ${{ matrix.driver == 'docker' && 'type=image,compression=zstd,compression-level=1,oci-mediatypes=true' || '' }}
           tags: cache-probe:test
           provenance: false
           build-args: SOURCE_DATE_EPOCH=0
@@ -88,7 +89,8 @@ jobs:
           DOCKER_BUILD_RECORD_UPLOAD: "false"
         with:
           context: /tmp/cache-probe
-          load: true
+          load: ${{ matrix.driver == 'docker-container' }}
+          outputs: ${{ matrix.driver == 'docker' && 'type=image,compression=zstd,compression-level=1,oci-mediatypes=true' || '' }}
           tags: cache-probe:test
           provenance: false
           build-args: SOURCE_DATE_EPOCH=0

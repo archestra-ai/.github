@@ -49,6 +49,55 @@ with `steps.docker.outputs.cache-write == 'true'`. Existing registry/GAR caches
 can keep their current refs and credentials; this action does not require moving
 those to GHA storage.
 
+## Optional zstd registry cache
+
+`cache-backend: ghcr` uses `ghcr.io/<owner>/<repo>-buildkit-cache:<scope>`
+with zstd level 1, forced compression, OCI manifests, and the same designated
+writer policy. Authentication uses the current job's `GITHUB_TOKEN`, not a PAT
+or a cross-repository credential. Each new GHCR package is private by default;
+this action never changes its visibility or access settings. Publishing with
+`GITHUB_TOKEN` links the package to the source repository. If organization policy
+disables permission inheritance, the package needs explicit repository access;
+a permission error must be resolved rather than hidden. Fork PRs fall back to the
+repository-isolated GHA backend without logging into the base repository cache.
+
+The caller grants `packages: write` to its designated publisher and
+`packages: read` to consumers, alongside its normal `contents: read` permission.
+Use a distinct scope per image and native architecture. Keep scopes stable so
+old package versions do not grow with each PR; package retention still needs
+an explicit policy before a broad rollout.
+
+```yaml
+# Inside a job with packages: read (or write for its publisher):
+- id: docker
+  uses: archestra-ai/.github/actions/setup-docker-builder@<reviewed-commit>
+  with:
+    cache-backend: ghcr
+    cache-scope: api-amd64
+    cache-mode: max
+    driver: docker
+- uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+  with:
+    context: .
+    tags: api:ci
+    # Native Docker driver stores the image directly; don't also request load.
+    outputs: type=image,compression=zstd,compression-level=1,oci-mediatypes=true
+    cache-from: ${{ steps.docker.outputs.cache-from }}
+    cache-to: ${{ steps.docker.outputs.cache-to }}
+```
+
+This profile is experimental until representative builds pass the runtime gate.
+GHA's BuildKit exporter selects default gzip; adding compression=zstd to a GHA
+cache spec does not select zstd. A registry cache supports that codec. GHCR
+container image storage and bandwidth are currently free, including private
+images; this is GitHub's current policy, not a permanent price guarantee.
+Existing GAR caches can remain in place with their existing authentication.
+
+Sources: [registry cache options](https://docs.docker.com/build/cache/backends/registry/),
+[GHCR billing](https://docs.github.com/en/billing/concepts/product-billing/github-packages),
+[GHCR permissions](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry),
+[BuildKit GHA compression](https://github.com/moby/buildkit/blob/8e20b4110a5482b200bebaf5e3d667a8f4446ac1/cache/remotecache/gha/gha.go#L176).
+
 ## Local image store
 
 The default `docker-container` driver preserves the usual Buildx behavior.
