@@ -67,6 +67,12 @@ def main() -> int:
 
 def check_versions(base: str, current: str, now: datetime) -> list[str]:
     failures = []
+    checksums = {
+        (package["name"], package["version"], package.get("source")): package.get(
+            "checksum"
+        )
+        for package in tomllib.loads(current)["package"]
+    }
     for name, version, source in sorted(
         registry_versions(current) - registry_versions(base)
     ):
@@ -78,6 +84,15 @@ def check_versions(base: str, current: str, now: datetime) -> list[str]:
         published = publication_time(name, version)
         eligible = published + timedelta(days=7)
         if now < eligible:
+            exception_until = SECURITY_RELEASE_AGE_EXCEPTIONS.get(
+                (name, version, checksums[(name, version, source)])
+            )
+            if exception_until is not None and published <= now < exception_until:
+                print(
+                    f"{name}@{version}: approved security release-age exception "
+                    f"until {exception_until.isoformat()} (exact crates.io checksum)"
+                )
+                continue
             failures.append(
                 f"{name}@{version}: published {published.isoformat()}; eligible {eligible.isoformat()}"
             )
@@ -112,6 +127,28 @@ def publication_time(name: str, version: str) -> datetime:
 
 
 CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
+
+# Trusted, exact-artifact exceptions for the emSign distrust security updates.
+# No consumer-supplied bypass. Each expires at the release's seven-day boundary;
+# publication metadata must still be available and the registry must be crates.io.
+# RUSTSEC-2026-0382, RUSTSEC-2026-0383, RUSTSEC-2026-0381 respectively.
+SECURITY_RELEASE_AGE_EXCEPTIONS = {
+    (
+        "rustls-webpki",
+        "0.103.16",
+        "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281",
+    ): datetime.fromisoformat("2026-10-27T08:58:28.008618+00:00"),
+    (
+        "webpki-root-certs",
+        "1.0.10",
+        "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb",
+    ): datetime.fromisoformat("2026-10-26T20:11:38.525787+00:00"),
+    (
+        "webpki-roots",
+        "1.0.10",
+        "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9",
+    ): datetime.fromisoformat("2026-10-26T20:11:32.333071+00:00"),
+}
 
 
 if __name__ == "__main__":

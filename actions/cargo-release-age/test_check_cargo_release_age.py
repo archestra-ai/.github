@@ -45,6 +45,103 @@ def registry_response(published, name="example", version="1.0.0"):
 
 
 class ReleaseAgeTests(unittest.TestCase):
+    def test_exact_security_artifacts_pass_before_seven_days(self):
+        for (name, version, checksum), expires in (
+            policy.SECURITY_RELEASE_AGE_EXCEPTIONS.items()
+        ):
+            published = expires - timedelta(days=7)
+            current = lockfile((name, version, policy.CRATES_IO))
+            current += f'checksum = "{checksum}"\n'
+            with (
+                self.subTest(name=name),
+                patch.object(
+                    policy, "urlopen",
+                    return_value=registry_response(
+                        published.isoformat(), name=name, version=version
+                    ),
+                ),
+                patch.object(policy.sys, "stdout", new_callable=io.StringIO) as out,
+            ):
+                self.assertEqual(
+                    policy.check_versions(
+                        lockfile(), current, published + timedelta(days=1)
+                    ), []
+                )
+                self.assertIn("approved security release-age exception", out.getvalue())
+
+    def test_security_exception_is_not_a_name_or_version_wildcard(self):
+        name, version, checksum = next(iter(policy.SECURITY_RELEASE_AGE_EXCEPTIONS))
+        expires = policy.SECURITY_RELEASE_AGE_EXCEPTIONS[(name, version, checksum)]
+        now = expires - timedelta(days=1)
+        for candidate, release, source, digest in [
+            (name, version, policy.CRATES_IO, "0" * 64),
+            (name, version, policy.CRATES_IO, None),
+            (name, "0.103.17", policy.CRATES_IO, checksum),
+            ("other", version, policy.CRATES_IO, checksum),
+            (name, version, "sparse+https://example.com/index", checksum),
+        ]:
+            current = lockfile((candidate, release, source))
+            if digest is not None:
+                current += f'checksum = "{digest}"\n'
+            with (
+                self.subTest(name=candidate, version=release, source=source, digest=digest),
+                patch.object(
+                    policy, "urlopen",
+                    return_value=registry_response(
+                        now.isoformat(), name=candidate, version=release
+                    ),
+                ),
+            ):
+                self.assertEqual(len(policy.check_versions(lockfile(), current, now)), 1)
+
+    def test_exception_expires_and_cannot_accept_future_publication(self):
+        (name, version, checksum), expires = next(
+            iter(policy.SECURITY_RELEASE_AGE_EXCEPTIONS.items())
+        )
+        current = lockfile((name, version, policy.CRATES_IO))
+        current += f'checksum = "{checksum}"\n'
+        for now, published, blocked in [
+            (expires, expires - timedelta(days=7), False),
+            (expires, expires - timedelta(days=1), True),
+            (expires - timedelta(days=1), expires, True),
+        ]:
+            with (
+                self.subTest(now=now, published=published),
+                patch.object(
+                    policy, "urlopen",
+                    return_value=registry_response(
+                        published.isoformat(), name=name, version=version
+                    ),
+                ),
+            ):
+                self.assertEqual(
+                    bool(policy.check_versions(lockfile(), current, now)), blocked
+                )
+
+    def test_exception_does_not_hide_other_young_crates_or_registry_failure(self):
+        (name, version, checksum), expires = next(
+            iter(policy.SECURITY_RELEASE_AGE_EXCEPTIONS.items())
+        )
+        now = expires - timedelta(days=1)
+        current = lockfile((name, version, policy.CRATES_IO))
+        current += f'checksum = "{checksum}"\n'
+        current += lockfile(("unrelated", "1.0.0", policy.CRATES_IO)).split("\n", 1)[1]
+        with patch.object(
+            policy, "urlopen",
+            side_effect=[
+                registry_response(now.isoformat(), name=name, version=version),
+                registry_response(now.isoformat(), name="unrelated"),
+            ],
+        ):
+            failures = policy.check_versions(lockfile(), current, now)
+            self.assertEqual(len(failures), 1)
+            self.assertIn("unrelated@1.0.0", failures[0])
+        with (
+            patch.object(policy, "urlopen", side_effect=URLError("unavailable")),
+            self.assertRaises(URLError),
+        ):
+            policy.check_versions(lockfile(), current, now)
+
     def test_exact_seven_day_boundary(self):
         current = lockfile(("example", "1.0.0", policy.CRATES_IO))
         for age, blocked in [
