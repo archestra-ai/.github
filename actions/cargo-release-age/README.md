@@ -29,6 +29,24 @@ base lockfiles fail closed. Existing base versions are grandfathered; local and 
 dependencies are outside the registry-age check. Rerun CI once a blocked version
 reaches seven days old. The action has no age-policy bypass input.
 
+### Temporary security exceptions
+
+The trusted checker permits only these exact crates.io security artifacts before
+they reach seven days old. The lockfile checksum must match the bundled policy,
+and registry publication metadata must remain available. Each exception expires
+automatically at the timestamp below; ordinary age checks then apply.
+
+| Crate | Version | RustSec advisory | Exception expires (UTC) |
+| --- | --- | --- | --- |
+| `rustls-webpki` | `0.103.16` | [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382.html) | 2026-10-27 08:58:28.008618 |
+| `webpki-root-certs` | `1.0.10` | [RUSTSEC-2026-0383](https://rustsec.org/advisories/RUSTSEC-2026-0383.html) | 2026-10-26 20:11:38.525787 |
+| `webpki-roots` | `1.0.10` | [RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381.html) | 2026-10-26 20:11:32.333071 |
+
+These releases implement emSign certificate distrust. Exceptions do not apply to
+other versions, registries, or checksums, and do not disable vulnerability checks.
+Adding an exception requires a reviewed change to this repository and a new
+commit pin in the consumer; there is no consumer-controlled exception input.
+
 Stable Cargo installs are not intercepted. Cargo's native
 [minimum publish age](https://doc.rust-lang.org/cargo/reference/unstable.html#min-publish-age)
 is currently nightly-only. This action keeps consumers on their existing toolchain.
