@@ -72,13 +72,14 @@ jobs:
       checks: read # Count the failing checks of the reviewed commit.
       actions: read # Read failing jobs, logs and annotations for the CI triage.
     steps:
-      # No token for this actor, no gateway, or a fix without a GitHub App:
-      # skip with a notice, do not fail the job.
+      # No token for this actor, no gateway or agents, or a fix without a
+      # GitHub App: skip with a notice, do not fail the job.
       - name: Check the actor's Archestra token
         id: token
         env:
           ARCHESTRA_TOKEN: ${{ secrets.ARCHESTRA_TOKEN }}
           GATEWAY_URL: ${{ inputs.gateway-url }}
+          AGENTS: ${{ inputs.agents }}
           APP_ID: ${{ secrets.APP_ID }}
           KIND: ${{ inputs.kind }}
         shell: bash
@@ -87,6 +88,8 @@ jobs:
             echo "::notice::No Archestra token for this actor. Store their platform token as the secret ARCHESTRA_TOKEN_<LOGIN> to get reviews."
           elif [[ -z "$GATEWAY_URL" ]]; then
             echo "::notice::The ARCHESTRA_REVIEW_GATEWAY_URL variable is not set, so no review runs."
+          elif [[ -z "${AGENTS//[[:space:]]/}" ]]; then
+            echo "::notice::The ARCHESTRA_REVIEW_AGENTS variable is not set, so no review runs."
           elif [[ "$KIND" == "fix" && -z "$APP_ID" ]]; then
             echo "::notice::No GitHub App for fixes (ARCHESTRA_REVIEW_APP_ID), so the command is ignored."
           else
@@ -124,7 +127,7 @@ jobs:
 
       - name: Review or fix on the Archestra runtime
         if: steps.token.outputs.available == 'true'
-        uses: archestra-ai/code-review-action@ff157bb7423cd32a9dbb15f879618dd06de79db7 # v0.2.0
+        uses: archestra-ai/code-review-action@bb170ff99909bc8a45472048c2bf8d77f24e3907 # v0.2.1
         with:
           archestra-gateway-url: ${{ inputs.gateway-url }}
           archestra-token: ${{ secrets.ARCHESTRA_TOKEN }}
