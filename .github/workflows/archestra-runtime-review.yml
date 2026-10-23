@@ -127,7 +127,7 @@ jobs:
 
       - name: Review or fix on the Archestra runtime
         if: steps.token.outputs.available == 'true'
-        uses: archestra-ai/code-review-action@bb170ff99909bc8a45472048c2bf8d77f24e3907 # v0.2.1
+        uses: archestra-ai/code-review-action@9c1bcf2430c7701d68f18f6d263b5d302bea414d # v0.2.2
         with:
           archestra-gateway-url: ${{ inputs.gateway-url }}
           archestra-token: ${{ secrets.ARCHESTRA_TOKEN }}
