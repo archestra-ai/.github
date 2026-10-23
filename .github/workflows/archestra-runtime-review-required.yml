@@ -1,0 +1,57 @@
+# The organization-wide form of the Archestra runtime review, for a ruleset
+# with "Require workflows to pass before merging" (the zizmor rollout uses
+# the same mechanism). Once an organization owner adds this workflow to such
+# a ruleset, it runs on every pull request of the selected repositories with
+# no workflow file in them, and it becomes a required check: the job passes
+# when it skips (no token for the author, no gateway variables). Comment
+# commands cannot run through a ruleset, so the review offers none.
+#
+# Until a ruleset names it, this file only runs on pull requests of this
+# repository, where it skips.
+#
+# Needs, as organization secrets and variables shared with the repositories:
+# ARCHESTRA_TOKEN_<LOGIN> for each person, ARCHESTRA_REVIEW_GATEWAY_URL and
+# ARCHESTRA_REVIEW_AGENTS. README.md ("Archestra Runtime Reviews") has the
+# details.
+name: Archestra Runtime Review (organization)
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+permissions: {}
+
+concurrency:
+  group: archestra-runtime-review-org-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actor:
+    name: Resolve the author
+    if: github.repository_owner == 'archestra-ai'
+    uses: archestra-ai/code-review-action/.github/workflows/resolve-actor-token.yml@ff157bb7423cd32a9dbb15f879618dd06de79db7 # v0.2.0
+
+  review:
+    name: Archestra Review
+    needs: actor
+    if: >-
+      github.repository_owner == 'archestra-ai' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft &&
+      !contains(github.event.pull_request.title, '[WIP]')
+    permissions:
+      contents: read
+      pull-requests: write # Post the review comment and inline comments.
+      checks: read # Count the failing checks of the reviewed commit.
+      actions: read # The shared job asks for it (CI triage); unused by a review.
+    uses: archestra-ai/.github/.github/workflows/archestra-runtime-review.yml@ed7c2e6f5204f3a68ea1e8954817705ec07d9bca # v1.2.0
+    with:
+      kind: review
+      gateway-url: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL }}
+      agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS }}
+      fix-commands: false
+      timeout-minutes: 90
+    # GitHub resolves this lookup before starting the called job; only the
+    # matching token is passed, not the caller's complete secrets context.
+    secrets:
+      ARCHESTRA_TOKEN: ${{ secrets[needs.actor.outputs.secret_name] }} # zizmor: ignore[overprovisioned-secrets,obfuscation]
