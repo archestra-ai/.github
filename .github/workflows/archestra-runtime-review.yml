@@ -1,0 +1,140 @@
+# Reviews a pull request on an Archestra Agent Runtime, and applies fixes
+# when a maintainer asks. A repository calls this workflow from a short
+# workflow of its own; README.md ("Archestra Runtime Reviews") has the
+# caller and the setup.
+#
+# The caller passes only the secrets this job needs: the actor's Archestra
+# token and, for fixes, the GitHub App key. This job never gets the rest of
+# the caller's secrets. Each run acts as the person who caused the event,
+# with that person's platform token: their credentials, their Claude
+# account, their costs.
+name: Archestra Runtime Review
+
+on:
+  workflow_call:
+    inputs:
+      kind:
+        description: '"review" for a pull request event, "fix" for a comment command.'
+        type: string
+        default: review
+      gateway-url:
+        description: The Archestra MCP gateway endpoint.
+        type: string
+        required: true
+      agents:
+        description: Agent IDs, one for each line.
+        type: string
+        required: true
+      fix-commands:
+        description: True when the caller also runs the fix kind on comment events; the review comment then offers the commands.
+        type: boolean
+        default: false
+      clone-with-job-token:
+        description: >-
+          For a private repository without a GitHub App: the runtime clones with the job token. That token can
+          also write pull request comments, so prefer an App, which gets a token that can only read contents.
+        type: boolean
+        default: false
+      timeout-minutes:
+        description: The time limit for the job.
+        type: number
+        default: 90
+    secrets:
+      ARCHESTRA_TOKEN:
+        description: The actor's Archestra platform token. Empty skips the event with a notice.
+        required: false
+      APP_ID:
+        description: The GitHub App that pushes fixes and clones private repositories. Optional.
+        required: false
+      APP_PRIVATE_KEY:
+        description: The private key of that GitHub App. Optional.
+        required: false
+
+# The caller's job carries the group for the pull request. This one only
+# stops two copies of the same event from running at once.
+concurrency:
+  group: archestra-runtime-review-${{ github.workflow }}-${{ github.ref }}-${{ inputs.kind }}-${{ github.event.comment.id || github.run_id }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  run:
+    name: Archestra ${{ inputs.kind }}
+    if: github.repository_owner == 'archestra-ai'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    # The caller grants at least these: a called job cannot ask for more
+    # than its caller grants.
+    permissions:
+      contents: read # Read the repository.
+      pull-requests: write # Post the review comment and inline comments.
+      checks: read # Count the failing checks of the reviewed commit.
+      actions: read # Read failing jobs, logs and annotations for the CI triage.
+    steps:
+      # No token for this actor, no gateway, or a fix without a GitHub App:
+      # skip with a notice, do not fail the job.
+      - name: Check the actor's Archestra token
+        id: token
+        env:
+          ARCHESTRA_TOKEN: ${{ secrets.ARCHESTRA_TOKEN }}
+          GATEWAY_URL: ${{ inputs.gateway-url }}
+          APP_ID: ${{ secrets.APP_ID }}
+          KIND: ${{ inputs.kind }}
+        shell: bash
+        run: |
+          if [[ -z "$ARCHESTRA_TOKEN" ]]; then
+            echo "::notice::No Archestra token for this actor. Store their platform token as the secret ARCHESTRA_TOKEN_<LOGIN> to get reviews."
+          elif [[ -z "$GATEWAY_URL" ]]; then
+            echo "::notice::The ARCHESTRA_REVIEW_GATEWAY_URL variable is not set, so no review runs."
+          elif [[ "$KIND" == "fix" && -z "$APP_ID" ]]; then
+            echo "::notice::No GitHub App for fixes (ARCHESTRA_REVIEW_APP_ID), so the command is ignored."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            if [[ -n "$APP_ID" ]]; then
+              echo "app=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      # A private repository: the runtime clones with a token that can only
+      # read contents. A public repository needs none.
+      - name: Mint the clone token
+        if: >-
+          steps.token.outputs.available == 'true' && steps.token.outputs.app == 'true' &&
+          inputs.kind == 'review' && github.event.repository.private
+        id: clone-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+
+      - name: Mint the push token
+        if: steps.token.outputs.available == 'true' && inputs.kind == 'fix'
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-actions: read
+
+      - name: Review or fix on the Archestra runtime
+        if: steps.token.outputs.available == 'true'
+        uses: archestra-ai/code-review-action@ff157bb7423cd32a9dbb15f879618dd06de79db7 # v0.2.0
+        with:
+          archestra-gateway-url: ${{ inputs.gateway-url }}
+          archestra-token: ${{ secrets.ARCHESTRA_TOKEN }}
+          agents: ${{ inputs.agents }}
+          strategy: rotate
+          retries: 1
+          timeout-minutes: 30
+          fail-on: never
+          fix-commands: ${{ inputs.fix-commands }}
+          clone-token: ${{ steps.clone-token.outputs.token || (inputs.clone-with-job-token && github.event.repository.private && github.token) || '' }}
+          fix-token: ${{ steps.app-token.outputs.token }}
+          fix-timeout-minutes: 45
+          ci-rerun: false

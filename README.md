@@ -28,3 +28,23 @@ Core maintainers can enable reviews for their PRs by running `claude setup-token
 ```bash
 gh secret set "CLAUDE_CODE_OAUTH_TOKEN_$(gh api user --jq '.login | ascii_upcase | gsub("-"; "_")')" --org archestra-ai --visibility selected --repos .github,archestra,OpenAPPA
 ```
+
+## Archestra Runtime Reviews
+
+[archestra-ai/code-review-action](https://github.com/archestra-ai/code-review-action) reviews a pull request on an Archestra Agent Runtime and posts the review as a comment with inline findings. Each run acts as the person who caused the event, with that person's Archestra platform token: their credentials, their Claude account, their costs. The reusable workflow [`archestra-runtime-review.yml`](.github/workflows/archestra-runtime-review.yml) runs it; a repository calls it from a short workflow of its own.
+
+To enable it for a repository:
+
+1. Set the variables `ARCHESTRA_REVIEW_GATEWAY_URL` (the MCP gateway endpoint) and `ARCHESTRA_REVIEW_AGENTS` (agent IDs, one per line) on the repository, or as organization variables shared with it.
+2. Each person stores their Archestra platform token (Personal Settings in Archestra) as the secret `ARCHESTRA_TOKEN_<LOGIN>` (the GitHub login in upper case, `-` as `_`), as for Claude reviews. Organization owners share it with the repositories:
+
+   ```bash
+   gh secret set "ARCHESTRA_TOKEN_$(gh api user --jq '.login | ascii_upcase | gsub("-"; "_")')" --org archestra-ai --visibility selected --repos archestra,OpenAPPA
+   ```
+
+   A repository admin sets it on one repository with `--repo archestra-ai/<repo>` instead. Without a token for the author, the job skips with a notice.
+3. Add the caller workflow. `archestra-ai/archestra/.github/workflows/archestra-runtime-review.yml` is the reference: a job resolves the name of the author's secret with the action's `resolve-actor-token.yml`, and the review job calls this workflow with that one secret, so no job gets the whole secrets context.
+
+Fix commands in the review comment (`/archestra fix`, `/archestra fix-ci`) need a GitHub App that can push (`ARCHESTRA_REVIEW_APP_ID` and `ARCHESTRA_REVIEW_APP_PRIVATE_KEY`), comment triggers in the caller, and `fix-commands: true`. A private repository needs that App, or `clone-with-job-token: true`, for the runtime to clone it.
+
+To run the review on every pull request of the organization without a caller in each repository, an organization owner adds a workflow of this repository to a ruleset with "Require workflows to pass before merging", as the zizmor rollout does. The review then becomes a required check: the job passes when it skips, and comment commands cannot run through a ruleset.
