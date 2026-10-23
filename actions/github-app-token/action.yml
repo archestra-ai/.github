@@ -1,0 +1,47 @@
+name: GitHub App token
+description: Mint a masked installation token and revoke it automatically at the end of the job.
+inputs:
+  app-id:
+    description: GitHub App ID.
+    required: true
+  private-key:
+    description: GitHub App private key, supplied through a caller secret.
+    required: true
+  owner:
+    description: Installation owner. Empty preserves the upstream current-repository default.
+    default: ""
+  repositories:
+    description: Repository names. Set explicitly when owner is set to avoid installation-wide scope.
+    default: ""
+  permission-actions:
+    description: Requested actions permission. Empty preserves the installation default.
+    default: ""
+  permission-contents:
+    description: Requested contents permission. Empty preserves the installation default.
+    default: ""
+  permission-issues:
+    description: Requested issues permission. Empty preserves the installation default.
+    default: ""
+  permission-pull-requests:
+    description: Requested pull requests permission. Empty preserves the installation default.
+    default: ""
+outputs:
+  token:
+    description: Masked token for subsequent steps in this job.
+    value: ${{ steps.token.outputs.token }}
+runs:
+  using: composite
+  steps:
+    - name: Create GitHub App token
+      id: token
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+        owner: ${{ inputs.owner }}
+        repositories: ${{ inputs.repositories }}
+        permission-actions: ${{ inputs.permission-actions }}
+        permission-contents: ${{ inputs.permission-contents }}
+        permission-issues: ${{ inputs.permission-issues }}
+        permission-pull-requests: ${{ inputs.permission-pull-requests }}
+        skip-token-revoke: false
