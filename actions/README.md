@@ -1,6 +1,7 @@
 # Shared CI actions
 
 Pin callers to a reviewed **full commit SHA** in `archestra-ai/.github/actions/<name>@<sha>`.
+Dependabot checks workflows and `actions/*` weekly, grouping Actions updates with a seven-day cooldown.
 Checkout the caller's source first. All actions run inside the caller's job;
 triggers, environments, permissions, service accounts and deployment checks stay there.
 
