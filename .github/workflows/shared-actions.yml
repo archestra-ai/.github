@@ -1,4 +1,4 @@
-name: Cargo Release Age Tests
+name: Shared Action Tests
 
 on:
   pull_request:
@@ -7,14 +7,14 @@ on:
   merge_group:
 
 concurrency:
-  group: cargo-release-age-${{ github.workflow }}-${{ github.ref }}
+  group: shared-actions-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions: {}
 
 jobs:
   test:
-    name: Cargo Release Age Tests
+    name: Shared Action Tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
