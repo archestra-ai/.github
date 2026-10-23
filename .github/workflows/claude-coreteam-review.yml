@@ -52,7 +52,7 @@ jobs:
       - name: PR Review with Claude
         if: steps.token.outputs.available == 'true'
         # Internal action pinned to its implementation commit; no release tag exists.
-        uses: archestra-ai/.github/actions/run-claude@3287f712b7b14c74f9c2305f3c4c0afa4615c0ff # zizmor: ignore[stale-action-refs]
+        uses: archestra-ai/.github/actions/run-claude@840a8b2c85a9deb01869cc956c9c77fbf50ccd68 # v1.1.0
         with:
           prompt: "/review-pr REPO: ${{ github.repository }} PR_NUMBER: ${{ github.event.pull_request.number }}"
           allowed_tools: "Read,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
