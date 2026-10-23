@@ -1,0 +1,32 @@
+name: Deploy production to Vercel
+description: Upload source and build remotely with a pinned Vercel CLI, compatible with team-scoped tokens.
+inputs:
+  token:
+    description: Vercel token supplied through a caller secret.
+    required: true
+  org-id:
+    description: Vercel team ID.
+    required: true
+  project-id:
+    description: Vercel project ID.
+    required: true
+  build-env:
+    description: JSON object of non-secret build environment variables.
+    default: "{}"
+outputs:
+  deployment-url:
+    description: Vercel deployment URL reported by the CLI, if present.
+    value: ${{ steps.deploy.outputs.deployment-url }}
+runs:
+  using: composite
+  steps:
+    - name: Deploy production
+      id: deploy
+      shell: bash
+      env:
+        VERCEL_TOKEN: ${{ inputs.token }}
+        VERCEL_ORG_ID: ${{ inputs.org-id }}
+        VERCEL_PROJECT_ID: ${{ inputs.project-id }}
+        VERCEL_BUILD_ENV: ${{ inputs.build-env }}
+        DEPLOY_SCRIPT: ${{ github.action_path }}/deploy.py
+      run: python3 "$DEPLOY_SCRIPT"

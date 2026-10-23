@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /actions/*
+    schedule:
+      interval: weekly
+    groups:
+      github-actions-dependencies:
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+    commit-message:
+      prefix: deps
+    cooldown:
+      default-days: 7

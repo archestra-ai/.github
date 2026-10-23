@@ -26,3 +26,5 @@ jobs:
           persist-credentials: false
       - name: Test release age policy
         run: python3 -m unittest discover -s actions/cargo-release-age -p 'test_*.py'
+      - name: Test Vercel deployment arguments and failures
+        run: python3 -m unittest discover -s actions/vercel-deploy -p 'test_*.py'
