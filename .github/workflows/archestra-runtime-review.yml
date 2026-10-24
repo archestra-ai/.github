@@ -21,6 +21,10 @@ on:
         description: The Archestra MCP gateway endpoint.
         type: string
         required: true
+      private-staging-access:
+        description: Use the review-only IAP tunnel for internal archestra-ai/archestra PRs.
+        type: boolean
+        default: false
       agents:
         description: Agent IDs, one for each line.
         type: string
@@ -71,6 +75,7 @@ jobs:
       pull-requests: write # Post the review comment and inline comments.
       checks: read # Count the failing checks of the reviewed commit.
       actions: read # Read failing jobs, logs and annotations for the CI triage.
+      id-token: write # Short-lived Google identity for the optional private staging tunnel.
     steps:
       # No token for this actor, no gateway or agents, or a fix without a
       # GitHub App: skip with a notice, do not fail the job.
@@ -82,8 +87,13 @@ jobs:
           AGENTS: ${{ inputs.agents }}
           APP_ID: ${{ secrets.APP_ID }}
           KIND: ${{ inputs.kind }}
+          PRIVATE_STAGING: ${{ inputs.private-staging-access }}
         shell: bash
         run: |
+          if [[ "$PRIVATE_STAGING" == "true" && "$KIND" != "review" ]]; then
+            echo "::error::Private staging access is limited to pull request reviews."
+            exit 1
+          fi
           if [[ -z "$ARCHESTRA_TOKEN" ]]; then
             echo "::notice::No Archestra token for this actor. Store their platform token as the secret ARCHESTRA_TOKEN_<LOGIN> to get reviews."
           elif [[ -z "$GATEWAY_URL" ]]; then
@@ -98,6 +108,13 @@ jobs:
               echo "app=true" >> "$GITHUB_OUTPUT"
             fi
           fi
+
+      - name: Connect to private staging
+        id: iap
+        if: steps.token.outputs.available == 'true' && inputs.private-staging-access
+        uses: archestra-ai/.github/actions/staging-iap@80bbcdc181018ef385a961e7b6eae3989be3ef63
+        with:
+          gateway-url: ${{ inputs.gateway-url }}
 
       # A private repository: the runtime clones with a token that can only
       # read contents. A public repository needs none.
@@ -141,3 +158,9 @@ jobs:
           fix-token: ${{ steps.app-token.outputs.token }}
           fix-timeout-minutes: 45
           ci-rerun: false
+
+      - name: Close private staging access
+        if: always() && steps.iap.outcome != 'skipped'
+        uses: archestra-ai/.github/actions/staging-iap@80bbcdc181018ef385a961e7b6eae3989be3ef63
+        with:
+          operation: stop
