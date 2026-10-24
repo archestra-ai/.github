@@ -28,3 +28,7 @@ jobs:
         run: python3 -m unittest discover -s actions/cargo-release-age -p 'test_*.py'
       - name: Test Vercel deployment arguments and failures
         run: python3 -m unittest discover -s actions/vercel-deploy -p 'test_*.py'
+      - name: Test private review access boundaries and cleanup
+        env:
+          RUN_NETWORK_TESTS: "1"
+        run: python3 -m unittest discover -s actions/staging-iap -p 'test_*.py'
