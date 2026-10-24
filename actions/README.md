@@ -10,6 +10,7 @@ triggers, environments, permissions, service accounts and deployment checks stay
 | `google-auth` | `service_account`, `workload_identity_provider` | `setup_gcloud: 'true'`; `registry` also installs gcloud; `token_format: access_token` exposes `access_token`. Also outputs `project_id`, `credentials_file_path`. |
 | `github-app-token` | `app-id`, `private-key` | `owner`, `repositories`, `permission-actions`, `permission-contents`, `permission-issues`, `permission-pull-requests`; outputs `token`. |
 | `vercel-deploy` | `token`, `org-id`, `project-id` | `build-env`: JSON object of non-secret string values; outputs `deployment-url`. Always deploys production. |
+| `staging-iap` | `gateway-url` on start | Internal Archestra PR reviews only. Opens the existing IAP staging HTTPS tunnel; call again with `operation: stop` in an `always()` step. Requires `id-token: write`. |
 
 Google callers need job permission `id-token: write`. Authentication uses WIF only;
 temporary credential cleanup remains enabled. There are no service-account key inputs.

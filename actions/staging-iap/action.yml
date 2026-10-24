@@ -1,0 +1,32 @@
+name: Private staging review access
+description: Connect the trusted runtime-review job to staging HTTPS through IAP using short-lived Google credentials.
+inputs:
+  operation:
+    description: Start or stop the job's tunnel.
+    default: start
+  gateway-url:
+    description: Existing private staging MCP URL; used only to validate the destination.
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Validate private review context
+      if: inputs.operation == 'start'
+      shell: bash
+      env:
+        ACTION_DIRECTORY: ${{ github.action_path }}
+        GATEWAY_URL: ${{ inputs.gateway-url }}
+      run: python3 "$ACTION_DIRECTORY/tunnel.py" check
+    - name: Authenticate the review identity
+      if: inputs.operation == 'start'
+      uses: archestra-ai/.github/actions/google-auth@e056f9a75ab0989415271d40c6cec6b0a4a5c81c # v1.6.0
+      with:
+        service_account: archestra-review-ci@friendly-path-465518-r6.iam.gserviceaccount.com
+        workload_identity_provider: projects/354887056155/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider
+        setup_gcloud: "true"
+    - name: Manage the staging tunnel
+      shell: bash
+      env:
+        ACTION_DIRECTORY: ${{ github.action_path }}
+        OPERATION: ${{ inputs.operation }}
+      run: python3 "$ACTION_DIRECTORY/tunnel.py" "$OPERATION"
