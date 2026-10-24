@@ -112,7 +112,7 @@ jobs:
       - name: Connect to private staging
         id: iap
         if: steps.token.outputs.available == 'true' && inputs.private-staging-access
-        uses: archestra-ai/.github/actions/staging-iap@80bbcdc181018ef385a961e7b6eae3989be3ef63
+        uses: archestra-ai/.github/actions/staging-iap@89ea84776314e20c37bf17062638571546151b01 # v1.7.0-rc.1
         with:
           gateway-url: ${{ inputs.gateway-url }}
 
@@ -161,6 +161,6 @@ jobs:
 
       - name: Close private staging access
         if: always() && steps.iap.outcome != 'skipped'
-        uses: archestra-ai/.github/actions/staging-iap@80bbcdc181018ef385a961e7b6eae3989be3ef63
+        uses: archestra-ai/.github/actions/staging-iap@89ea84776314e20c37bf17062638571546151b01 # v1.7.0-rc.1
         with:
           operation: stop
