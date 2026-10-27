@@ -168,12 +168,14 @@ jobs:
             fi
           fi
 
-      # With fail-on "never", a failing step leaves the job green: the step and
-      # its error still show in the job, but no merge waits on a review outage.
+      # A tunnel failure never stops the job here: the review is skipped, and
+      # the last step fails the job unless fail-on is "never". A constant,
+      # because GitHub evaluates continue-on-error of a composite action step
+      # with the action's own inputs, so inputs.fail-on reads empty there.
       - name: Connect to private staging
         id: iap
         if: steps.token.outputs.available == 'true' && inputs.private-staging-access
-        continue-on-error: ${{ inputs.fail-on == 'never' }}
+        continue-on-error: true
         uses: archestra-ai/.github/actions/staging-iap@59e195ddb9346697aadaff1b114c95fad1747673 # v1.8.1
         with:
           gateway-url: ${{ inputs.gateway-url }}
@@ -183,7 +185,8 @@ jobs:
       - name: Mint the clone token
         if: >-
           steps.token.outputs.available == 'true' && steps.token.outputs.app == 'true' &&
-          inputs.kind == 'review' && github.event.repository.private
+          inputs.kind == 'review' && github.event.repository.private &&
+          steps.iap.outcome != 'failure'
         id: clone-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -232,8 +235,20 @@ jobs:
           ci-rerun: false
 
       - name: Close private staging access
+        id: close
         if: always() && steps.iap.outcome != 'skipped'
-        continue-on-error: ${{ inputs.fail-on == 'never' }}
+        continue-on-error: true
         uses: archestra-ai/.github/actions/staging-iap@59e195ddb9346697aadaff1b114c95fad1747673 # v1.8.1
         with:
           operation: stop
+
+      # With fail-on "never", a review outage leaves the job green: the failed
+      # step and its error still show, but no merge waits on it.
+      - name: Report a private staging failure
+        if: >-
+          !cancelled() && inputs.fail-on != 'never' &&
+          (steps.iap.outcome == 'failure' || steps.close.outcome == 'failure')
+        shell: bash
+        run: |
+          echo "::error::Private staging access failed; the step above says why."
+          exit 1
