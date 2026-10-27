@@ -6,16 +6,22 @@
 #
 # - Maintainers only: the shared job reviews a pull request only when its
 #   author has the admin or maintain role on the repository and started the
-#   run. Every other pull request gets a passing job and no review.
+#   run. Every other pull request runs nothing and says nothing.
+# - Change requests: a blocking finding (medium or above) requests changes;
+#   a later review that finds nothing blocking dismisses that request. Fixed
+#   findings' threads are resolved.
 # - No secrets: the job signs in to Archestra with its GitHub Actions
 #   identity. Archestra runs the review as the pull request author, who must
 #   have connected GitHub through the Archestra Lobster App, and the review
 #   posts as that App.
-# - Never blocks: the job passes when it skips and when the review cannot
-#   finish (fail-on: never); the review comment and the job log say why.
+# - The check never fails: the job passes when it skips and when the review
+#   cannot finish (fail-on: never); the review comment and the job log say
+#   why. Only the bot's change request can hold a merge.
 # - Merge queues: a merge group gets a passing job, so a required workflow
 #   never holds a queue.
-# - Comment commands cannot run through a ruleset, so the review offers none.
+# - A ruleset delivers only opened, synchronize and reopened, so neither
+#   comment commands nor team review requests reach this form; a repository
+#   that wants them calls the shared workflow itself (archestra does).
 #
 # Until a ruleset names it, this file only runs on pull requests of this
 # repository.
@@ -31,9 +37,12 @@ on:
 
 permissions: {}
 
+# The shared review job replaces an older review of the pull request, so a
+# run that its gate stops cannot cancel one. This group only keeps two runs
+# of the same commit apart.
 concurrency:
-  group: archestra-runtime-review-org-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: archestra-runtime-review-org-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   queue:
@@ -60,7 +69,7 @@ jobs:
       checks: read # Give the reviewer the checks of the reviewed commit.
       actions: read # The shared job asks for it (CI triage); unused by a review.
       id-token: write # Archestra sign-in and the private staging tunnel.
-    uses: archestra-ai/.github/.github/workflows/archestra-runtime-review.yml@f728c0fc68a64796ce4e0898b469d920ec0f3f65 # v1.9.2
+    uses: archestra-ai/.github/.github/workflows/archestra-runtime-review.yml@a49ee27772c23da0accdd63f1e8efdb1baa3869e # v1.10.0
     with:
       kind: review
       archestra-auth: github-actions
@@ -68,6 +77,6 @@ jobs:
       private-staging-access: true
       agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS || 'f788ec75-dcb1-4bb8-b1ec-7a9d01e1b79d,fe2ddf73-451b-4d21-b97b-8e8e25675bca,42d6092b-583a-40e3-8dce-8025b5a0f61b' }}
       fix-commands: false
-      review-event: comment
+      review-event: request-changes
       timeout-minutes: 90
       fail-on: never
