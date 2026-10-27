@@ -9,15 +9,18 @@
 # with that person's platform token: their credentials, their Claude
 # account, their costs. With archestra-auth "github-actions", a review needs
 # no token secret: the job signs in with its GitHub Actions identity, and
-# Archestra runs the review as the pull request author, who must have
-# connected GitHub through the organization's review App, and returns that
-# App's token, so the review posts as the App.
+# Archestra runs the review as that person, who must have connected GitHub
+# through the organization's review App, and returns that App's token, so the
+# review posts as the App.
 #
 # A review runs only on a pull request that a maintainer opened (admin or
-# maintain role on the repository) and only when that author started the run:
-# a contributor's pull request, or a push by someone else, gets no review.
-# This file is what the private staging trust pins, so a caller cannot skip
-# the check.
+# maintain role on the repository), and only when a maintainer started it:
+# the author, by opening or pushing, or any maintainer, by requesting a review
+# from the review-team team. Whoever re-runs a job must be a maintainer too.
+# Anything else, such as a contributor's pull request, a push by someone else,
+# or a review request by someone who is not a maintainer, runs nothing and
+# says nothing. This file is what the private staging trust pins, so a caller
+# cannot skip the check; the caller's own workflow file is not trusted.
 name: Archestra Runtime Review
 
 on:
@@ -61,6 +64,13 @@ on:
         description: comment, or request-changes for a change request when a finding blocks the merge. The action never approves.
         type: string
         default: comment
+      review-team:
+        description: >-
+          A team slug. A maintainer who requests a review from this team starts a review of a maintainer's pull
+          request, as that maintainer; the request is cleared afterwards. Empty: review requests start nothing.
+          Only callers that get review_requested events can use it; a ruleset does not deliver them.
+        type: string
+        default: ""
       fail-on:
         description: >-
           error: the job fails when the review cannot finish. never: the job always passes (for a required
@@ -87,11 +97,76 @@ concurrency:
 permissions: {}
 
 jobs:
-  run:
-    name: Archestra ${{ inputs.kind }}
+  # Decides whether anything runs, and says nothing when it does not.
+  gate:
+    name: Check who started it
     if: github.repository_owner == 'archestra-ai'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read # Read collaborator roles.
+      pull-requests: read # Read the pull request of the event.
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+      on-demand: ${{ steps.check.outputs.on-demand }}
+    steps:
+      - name: Check the author and who started the run
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KIND: ${{ inputs.kind }}
+          REPOSITORY: ${{ github.repository }}
+          ACTION: ${{ github.event.action }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          REQUESTED_TEAM: ${{ github.event.requested_team.slug }}
+          REVIEW_TEAM: ${{ inputs.review-team }}
+        shell: bash
+        run: |
+          maintainer() {
+            local role
+            role=$(gh api "repos/$REPOSITORY/collaborators/$1/permission" --jq .role_name 2>/dev/null || true)
+            [[ "$role" == "admin" || "$role" == "maintain" ]]
+          }
+          if [[ "$KIND" != "review" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ -n "$AUTHOR" ]] || exit 0
+          case "$ACTION" in
+            review_requested)
+              [[ -n "$REVIEW_TEAM" && "$REQUESTED_TEAM" == "$REVIEW_TEAM" ]] || exit 0
+              on_demand=true
+              ;;
+            opened | synchronize | reopened | ready_for_review)
+              [[ "$ACTOR" == "$AUTHOR" ]] || exit 0
+              on_demand=false
+              ;;
+            *)
+              exit 0
+              ;;
+          esac
+          maintainer "$AUTHOR" || exit 0
+          [[ "$ACTOR" == "$AUTHOR" ]] || maintainer "$ACTOR" || exit 0
+          # A re-run acts as whoever started the first run.
+          if [[ -n "$TRIGGERING_ACTOR" && "$TRIGGERING_ACTOR" != "$ACTOR" ]]; then
+            maintainer "$TRIGGERING_ACTOR" || exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+          echo "on-demand=$on_demand" >> "$GITHUB_OUTPUT"
+
+  run:
+    name: Archestra ${{ inputs.kind }}
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    # A newer review of the pull request replaces this one. Only a run the
+    # gate let through can replace it.
+    concurrency:
+      group: archestra-runtime-review-${{ github.repository }}-${{ github.event.pull_request.number || github.run_id }}-${{ inputs.kind }}
+      cancel-in-progress: ${{ inputs.kind == 'review' }}
     # The caller grants at least these: a called job cannot ask for more
     # than its caller grants.
     permissions:
@@ -101,33 +176,10 @@ jobs:
       actions: read # Read failing jobs, logs and annotations for the CI triage.
       id-token: write # Short-lived identity for the optional private staging tunnel and the Archestra sign-in.
     steps:
-      # Reviews only for a maintainer's pull request, started by that maintainer.
-      - name: Check the pull request author
-        id: author
-        if: inputs.kind == 'review'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          AUTHOR: ${{ github.event.pull_request.user.login }}
-          ACTOR: ${{ github.actor }}
-        shell: bash
-        run: |
-          if [[ -z "$AUTHOR" || "$AUTHOR" != "$ACTOR" ]]; then
-            echo "::notice::Reviews run only when the pull request author starts the run; $ACTOR started this one."
-            exit 0
-          fi
-          role=$(gh api "repos/$REPOSITORY/collaborators/$AUTHOR/permission" --jq .role_name 2>/dev/null || true)
-          if [[ "$role" == "admin" || "$role" == "maintain" ]]; then
-            echo "allowed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::Reviews run only for pull requests by maintainers (admin or maintain role); $AUTHOR has ${role:-no} role here."
-          fi
-
       # No token for this actor (token sign-in), no gateway or agents, or a fix
       # without a GitHub App: skip with a notice, do not fail the job.
       - name: Check the actor's Archestra token
         id: token
-        if: inputs.kind != 'review' || steps.author.outputs.allowed == 'true'
         env:
           ARCHESTRA_TOKEN: ${{ secrets.ARCHESTRA_TOKEN }}
           ARCHESTRA_AUTH: ${{ inputs.archestra-auth }}
@@ -212,8 +264,10 @@ jobs:
       - name: Review or fix on the Archestra runtime
         if: steps.token.outputs.available == 'true' && steps.iap.outcome != 'failure'
         continue-on-error: ${{ inputs.fail-on == 'never' }}
-        uses: archestra-ai/code-review-action@abb6d5390dddffb9e91a383b9406b4ea19d9d528 # v0.5.1
+        uses: archestra-ai/code-review-action@e3b79886c7b43645bf4fe8816af77700421547a9 # v0.6.0
         with:
+          # A review request is not an event the action reviews on its own.
+          mode: ${{ needs.gate.outputs.on-demand == 'true' && 'review' || 'auto' }}
           archestra-gateway-url: ${{ inputs.gateway-url }}
           archestra-auth: ${{ inputs.archestra-auth }}
           # Read only with archestra-auth "token"; the GitHub Actions sign-in needs no secret.
@@ -241,6 +295,21 @@ jobs:
         uses: archestra-ai/.github/actions/staging-iap@59e195ddb9346697aadaff1b114c95fad1747673 # v1.8.1
         with:
           operation: stop
+
+      # The team's pending request in the reviewer list ends with the review,
+      # so the next request starts a new one.
+      - name: Clear the review request
+        if: always() && needs.gate.outputs.on-demand == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          TEAM: ${{ inputs.review-team }}
+        shell: bash
+        run: |
+          jq -n --arg team "$TEAM" '{team_reviewers: [$team]}' |
+            gh api -X DELETE "repos/$REPOSITORY/pulls/$PR/requested_reviewers" --input - > /dev/null
 
       # With fail-on "never", a review outage leaves the job green: the failed
       # step and its error still show, but no merge waits on it.
