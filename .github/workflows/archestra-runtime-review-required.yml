@@ -75,7 +75,7 @@ jobs:
       archestra-auth: github-actions
       gateway-url: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || 'https://frontend.archestra.dev/v1/mcp/416c32d5-8c40-4bf3-8544-212c200e3ca2' }}
       private-staging-access: true
-      agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS || 'f788ec75-dcb1-4bb8-b1ec-7a9d01e1b79d,fe2ddf73-451b-4d21-b97b-8e8e25675bca,42d6092b-583a-40e3-8dce-8025b5a0f61b' }}
+      agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS || 'f788ec75-dcb1-4bb8-b1ec-7a9d01e1b79d,fe2ddf73-451b-4d21-b97b-8e8e25675bca,42d6092b-583a-40e3-8dce-8025b5a0f61b,c1928e8c-25e9-489c-a50e-3384da952615' }}
       fix-commands: false
       review-event: request-changes
       timeout-minutes: 90
