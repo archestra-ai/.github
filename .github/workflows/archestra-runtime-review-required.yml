@@ -60,7 +60,7 @@ jobs:
       checks: read # Give the reviewer the checks of the reviewed commit.
       actions: read # The shared job asks for it (CI triage); unused by a review.
       id-token: write # Archestra sign-in and the private staging tunnel.
-    uses: archestra-ai/.github/.github/workflows/archestra-runtime-review.yml@e7904ae4cd8f25266170da27a9c63c9f64fed1ad # v1.9.0
+    uses: archestra-ai/.github/.github/workflows/archestra-runtime-review.yml@f728c0fc68a64796ce4e0898b469d920ec0f3f65 # v1.9.2
     with:
       kind: review
       archestra-auth: github-actions
