@@ -2,22 +2,31 @@
 # with "Require workflows to pass before merging" (the zizmor rollout uses
 # the same mechanism). Once an organization owner adds this workflow to such
 # a ruleset, it runs on every pull request of the selected repositories with
-# no workflow file in them, and it becomes a required check: the job passes
-# when it skips (no token for the author, no gateway variables). Comment
-# commands cannot run through a ruleset, so the review offers none.
+# no workflow file in them.
+#
+# - Maintainers only: the shared job reviews a pull request only when its
+#   author has the admin or maintain role on the repository and started the
+#   run. Every other pull request gets a passing job and no review.
+# - Never blocks: the job passes when it skips and when the review cannot
+#   finish (fail-on: never); the review comment and the job log say why.
+# - Merge queues: a merge group gets a passing job, so a required workflow
+#   never holds a queue.
+# - Comment commands cannot run through a ruleset, so the review offers none.
 #
 # Until a ruleset names it, this file only runs on pull requests of this
-# repository, where it skips.
+# repository.
 #
-# Needs, as organization secrets and variables shared with the repositories:
-# ARCHESTRA_TOKEN_<LOGIN> for each person, ARCHESTRA_REVIEW_GATEWAY_URL and
-# ARCHESTRA_REVIEW_AGENTS. README.md ("Archestra Runtime Reviews") has the
-# details.
+# Needs, as organization variables shared with the repositories:
+# ARCHESTRA_REVIEW_GATEWAY_URL and ARCHESTRA_REVIEW_AGENTS. Until the
+# Archestra Code Review GitHub App replaces them, each maintainer's platform
+# token is the organization secret ARCHESTRA_TOKEN_<LOGIN>; without it, the
+# job skips with a notice.
 name: Archestra Runtime Review (organization)
 
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
+  merge_group:
 
 permissions: {}
 
@@ -26,31 +35,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  queue:
+    name: Archestra Review (merge queue)
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Nothing to review in a merge group
+        run: echo "The review runs on pull request events; a merge group has nothing to review."
+
   actor:
     name: Resolve the author
-    if: github.repository_owner == 'archestra-ai'
-    uses: archestra-ai/code-review-action/.github/workflows/resolve-actor-token.yml@ff157bb7423cd32a9dbb15f879618dd06de79db7 # v0.2.0
+    if: github.event_name == 'pull_request' && github.repository_owner == 'archestra-ai'
+    uses: archestra-ai/code-review-action/.github/workflows/resolve-actor-token.yml@abb6d5390dddffb9e91a383b9406b4ea19d9d528 # v0.5.1
 
   review:
     name: Archestra Review
     needs: actor
     if: >-
+      github.event_name == 'pull_request' &&
       github.repository_owner == 'archestra-ai' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       !github.event.pull_request.draft &&
       !contains(github.event.pull_request.title, '[WIP]')
     permissions:
-      contents: read
+      contents: read # Read the repository.
       pull-requests: write # Post the review comment and inline comments.
-      checks: read # Count the failing checks of the reviewed commit.
+      checks: read # Give the reviewer the checks of the reviewed commit.
       actions: read # The shared job asks for it (CI triage); unused by a review.
-    uses: archestra-ai/.github/.github/workflows/archestra-runtime-review.yml@ed7c2e6f5204f3a68ea1e8954817705ec07d9bca # v1.2.0
+      id-token: write # Short-lived identity for the private staging tunnel.
+    uses: archestra-ai/.github/.github/workflows/archestra-runtime-review.yml@e7904ae4cd8f25266170da27a9c63c9f64fed1ad # v1.9.0
     with:
       kind: review
       gateway-url: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL }}
+      private-staging-access: true
       agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS }}
       fix-commands: false
       timeout-minutes: 90
+      fail-on: never
     # GitHub resolves this lookup before starting the called job; only the
     # matching token is passed, not the caller's complete secrets context.
     secrets:
