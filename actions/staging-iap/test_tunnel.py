@@ -12,18 +12,27 @@ spec.loader.exec_module(tunnel)
 
 
 class TunnelBoundaryTests(unittest.TestCase):
-    def test_only_internal_pull_requests_and_fixed_tls_gateway_pass(self):
+    def test_only_same_repository_organization_pull_requests_and_fixed_tls_gateway_pass(self):
         with tempfile.TemporaryDirectory() as directory:
             event = Path(directory) / "event.json"
             event.write_text(json.dumps({"pull_request": {
                 "head": {"repo": {"id": 1020144870}}, "base": {"repo": {"id": 1020144870}}}}))
             environment = {"GITHUB_ACTIONS": "true", "RUNNER_OS": "Linux",
                            "GITHUB_REPOSITORY": "archestra-ai/archestra", "GITHUB_REPOSITORY_ID": "1020144870",
+                           "GITHUB_REPOSITORY_OWNER_ID": "216022683",
                            "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event),
                            "GATEWAY_URL": "https://frontend.archestra.dev/v1/mcp/416c32d5-8c40-4bf3-8544-212c200e3ca2"}
             with patch.dict(os.environ, environment, clear=True):
                 tunnel.check()
-                for key, value in [("GITHUB_REPOSITORY", "archestra-ai/website"),
+                # Another repository of the organization passes with its own same-repository pull request.
+                website = {"GITHUB_REPOSITORY": "archestra-ai/website", "GITHUB_REPOSITORY_ID": "555"}
+                event.write_text(json.dumps({"pull_request": {"head": {"repo": {"id": 555}},
+                                                               "base": {"repo": {"id": 555}}}}))
+                with patch.dict(os.environ, website):
+                    tunnel.check()
+                event.write_text(json.dumps({"pull_request": {
+                    "head": {"repo": {"id": 1020144870}}, "base": {"repo": {"id": 1020144870}}}}))
+                for key, value in [("GITHUB_REPOSITORY_OWNER_ID", "999"), ("GITHUB_REPOSITORY", "attacker/archestra"),
                                    ("GITHUB_REPOSITORY_ID", "123"), ("GITHUB_EVENT_NAME", "pull_request_target"),
                                    ("RUNNER_OS", "macOS"), ("GATEWAY_URL", "https://frontend.archestra.dev.evil.test/v1/mcp/a"),
                                    ("GATEWAY_URL", "http://frontend.archestra.dev/v1/mcp/416c32d5-8c40-4bf3-8544-212c200e3ca2"),

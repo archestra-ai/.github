@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 HOST = "frontend.archestra.dev"
 PORT = 18443
 MARKER = "archestra-runtime-review-iap"
+ORG_ID = "216022683"
 RULE = ["-d", "127.0.0.2/32", "-p", "tcp", "--dport", "443", "-m", "comment",
         "--comment", MARKER, "-j", "REDIRECT", "--to-ports", str(PORT)]
 
@@ -21,15 +22,18 @@ RULE = ["-d", "127.0.0.2/32", "-p", "tcp", "--dport", "443", "-m", "comment",
 def check():
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     pr = event.get("pull_request", {})
-    repo_id = 1020144870
+    # Any repository of the archestra-ai organization, by its immutable owner id;
+    # the pull request must come from a branch of that same repository.
+    repo_id = os.environ.get("GITHUB_REPOSITORY_ID", "")
     if not (os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("RUNNER_OS") == "Linux"
-            and os.environ.get("GITHUB_REPOSITORY") == "archestra-ai/archestra"
-            and os.environ.get("GITHUB_REPOSITORY_ID") == str(repo_id)
+            and os.environ.get("GITHUB_REPOSITORY_OWNER_ID") == ORG_ID
+            and os.environ.get("GITHUB_REPOSITORY", "").startswith("archestra-ai/")
             and os.environ.get("GITHUB_EVENT_NAME") == "pull_request"
-            and pr.get("head", {}).get("repo", {}).get("id") == repo_id
-            and pr.get("base", {}).get("repo", {}).get("id") == repo_id):
-        raise RuntimeError("Private staging access requires an internal Archestra pull request on a Linux Actions runner.")
+            and repo_id.isdigit()
+            and str(pr.get("head", {}).get("repo", {}).get("id")) == repo_id
+            and str(pr.get("base", {}).get("repo", {}).get("id")) == repo_id):
+        raise RuntimeError("Private staging access requires a same-repository pull request in an archestra-ai repository on a Linux Actions runner.")
     url = urlsplit(os.environ.get("GATEWAY_URL", ""))
     if not (url.scheme == "https" and url.hostname == HOST and url.port in (None, 443)
             and not url.username and not url.password and not url.query and not url.fragment
