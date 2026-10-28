@@ -24,6 +24,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Test runtime review error propagation
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Test release age policy
         run: python3 -m unittest discover -s actions/cargo-release-age -p 'test_*.py'
       - name: Test Vercel deployment arguments and failures
