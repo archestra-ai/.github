@@ -1,106 +1,71 @@
-# Reviews a pull request on an Archestra Agent Runtime, and applies fixes
-# when a maintainer asks. A repository calls this workflow from a short
-# workflow of its own; README.md ("Archestra Runtime Reviews") has the
-# caller and the setup.
+# Reviews every maintainer's pull request in the organization on an Archestra
+# Agent Runtime, and posts the review as the Archestra Lobster App.
 #
-# The caller passes only the secrets this job needs: the actor's Archestra
-# token and, for fixes, the GitHub App key. This job never gets the rest of
-# the caller's secrets. Each run acts as the person who caused the event,
-# with that person's platform token: their credentials, their Claude
-# account, their costs. With archestra-auth "github-actions", a review needs
-# no token secret: the job signs in with its GitHub Actions identity, and
-# Archestra runs the review as that person, who must have connected GitHub
-# through the organization's review App, and returns that App's token, so the
-# review posts as the App.
+# An organization ruleset ("Require workflows to pass before merging") runs
+# this file, from this repository's main branch, on every pull request of
+# every repository. No repository holds a workflow of its own, and whatever is
+# merged here is live everywhere at once. The private staging trust (infra,
+# gcp/workload_identity) and the review gateway accept this workflow by that
+# branch, so no pin moves when it changes. Until a ruleset names it, this file
+# only runs on pull requests of this repository.
 #
-# A review runs only on a pull request that a maintainer opened (admin or
-# maintain role on the repository), and only when a maintainer started it:
-# the author, by opening or pushing, or any maintainer, by requesting a review
-# from the review-team team. Whoever re-runs a job must be a maintainer too.
-# Anything else, such as a contributor's pull request, a push by someone else,
-# or a review request by someone who is not a maintainer, runs nothing and
-# says nothing. This file is what the private staging trust pins, so a caller
-# cannot skip the check; the caller's own workflow file is not trusted.
+# - Maintainers only: a review runs only on a pull request that a maintainer
+#   (admin or maintain role on the repository) opened, and only when the
+#   author started the run by opening, pushing or reopening it. Whoever
+#   re-runs a job must be a maintainer too. Anything else, such as a
+#   contributor's pull request or a push by someone else, runs nothing and
+#   says nothing.
+# - No secrets: the job signs in to Archestra with its GitHub Actions
+#   identity. Archestra runs the review as the author, who must have
+#   connected GitHub through the Archestra Lobster App, and returns that
+#   App's token, so the review posts as the App.
+# - Change requests: a blocking finding (medium or above) requests changes;
+#   a later review that finds nothing blocking dismisses it and says so.
+#   Fixed findings' threads are resolved.
+# - The check never fails: the job passes when it skips and when the review
+#   cannot finish; the review comment and the job log say why. Only the
+#   App's change request can hold a merge. A merge group gets a passing job.
+# - A ruleset delivers only opened, synchronize and reopened: no comment
+#   commands, team review requests or ready-for-review events reach it.
+#
+# The ARCHESTRA_REVIEW_GATEWAY_URL and ARCHESTRA_REVIEW_AGENTS variables of a
+# repository override the staging gateway and review agents below.
 name: Archestra Runtime Review
 
 on:
-  workflow_call:
-    inputs:
-      kind:
-        description: '"review" for a pull request event, "fix" for a comment command.'
-        type: string
-        default: review
-      gateway-url:
-        description: The Archestra MCP gateway endpoint.
-        type: string
-        required: true
-      private-staging-access:
-        description: Use the review-only IAP tunnel for internal archestra-ai/archestra PRs.
-        type: boolean
-        default: false
-      agents:
-        description: Agent IDs, one for each line.
-        type: string
-        required: true
-      fix-commands:
-        description: True when the caller also runs the fix kind on comment events; the review comment then offers the commands.
-        type: boolean
-        default: false
-      clone-with-job-token:
-        description: >-
-          For a private repository without a GitHub App: the runtime clones with the job token. That token can
-          also write pull request comments, so prefer an App, which gets a token that can only read contents.
-        type: boolean
-        default: false
-      timeout-minutes:
-        description: The time limit for the job. Keep it above 80 minutes, the review's own limit.
-        type: number
-        default: 90
-      archestra-auth:
-        description: token (the ARCHESTRA_TOKEN secret), or github-actions (the job's identity; reviews only, no secret needed).
-        type: string
-        default: token
-      review-event:
-        description: comment, or request-changes for a change request when a finding blocks the merge. The action never approves.
-        type: string
-        default: comment
-      review-team:
-        description: >-
-          A team slug. A maintainer who requests a review from this team starts a review of a maintainer's pull
-          request, as that maintainer; the request is cleared afterwards. Empty: review requests start nothing.
-          Only callers that get review_requested events can use it; a ruleset does not deliver them.
-        type: string
-        default: ""
-      fail-on:
-        description: >-
-          error: the job fails when the review cannot finish. never: the job always passes (for a required
-          workflow, so a review outage never blocks a merge).
-        type: string
-        default: error
-    secrets:
-      ARCHESTRA_TOKEN:
-        description: The actor's Archestra platform token, for archestra-auth "token". Empty skips the event with a notice.
-        required: false
-      APP_ID:
-        description: The GitHub App that pushes fixes and clones private repositories. Optional.
-        required: false
-      APP_PRIVATE_KEY:
-        description: The private key of that GitHub App. Optional.
-        required: false
-
-# The caller's job carries the group for the pull request. This one only
-# stops two copies of the same event from running at once.
-concurrency:
-  group: archestra-runtime-review-${{ github.workflow }}-${{ github.ref }}-${{ inputs.kind }}-${{ github.event.comment.id || github.run_id }}
-  cancel-in-progress: false
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+  merge_group:
 
 permissions: {}
 
+# The review job replaces an older review of the pull request, so a run that
+# the gate stops cannot cancel one. This group only keeps two runs of the same
+# commit apart.
+concurrency:
+  group: archestra-runtime-review-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
 jobs:
+  queue:
+    name: Archestra Review (merge queue)
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Nothing to review in a merge group
+        run: echo "The review runs on pull request events; a merge group has nothing to review."
+
   # Decides whether anything runs, and says nothing when it does not.
   gate:
     name: Check who started it
-    if: github.repository_owner == 'archestra-ai'
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.repository_owner == 'archestra-ai' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft &&
+      !contains(github.event.pull_request.title, '[WIP]')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -108,20 +73,16 @@ jobs:
       pull-requests: read # Read the pull request of the event.
     outputs:
       run: ${{ steps.check.outputs.run }}
-      on-demand: ${{ steps.check.outputs.on-demand }}
     steps:
       - name: Check the author and who started the run
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
-          KIND: ${{ inputs.kind }}
           REPOSITORY: ${{ github.repository }}
           ACTION: ${{ github.event.action }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
           ACTOR: ${{ github.actor }}
           TRIGGERING_ACTOR: ${{ github.triggering_actor }}
-          REQUESTED_TEAM: ${{ github.event.requested_team.slug }}
-          REVIEW_TEAM: ${{ inputs.review-team }}
         shell: bash
         run: |
           maintainer() {
@@ -129,195 +90,90 @@ jobs:
             role=$(gh api "repos/$REPOSITORY/collaborators/$1/permission" --jq .role_name 2>/dev/null || true)
             [[ "$role" == "admin" || "$role" == "maintain" ]]
           }
-          if [[ "$KIND" != "review" ]]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           [[ -n "$AUTHOR" ]] || exit 0
           case "$ACTION" in
-            review_requested)
-              [[ -n "$REVIEW_TEAM" && "$REQUESTED_TEAM" == "$REVIEW_TEAM" ]] || exit 0
-              on_demand=true
-              ;;
-            opened | synchronize | reopened | ready_for_review)
-              [[ "$ACTOR" == "$AUTHOR" ]] || exit 0
-              on_demand=false
-              ;;
-            *)
-              exit 0
-              ;;
+            opened | synchronize | reopened | ready_for_review) ;;
+            *) exit 0 ;;
           esac
+          [[ "$ACTOR" == "$AUTHOR" ]] || exit 0
           maintainer "$AUTHOR" || exit 0
-          [[ "$ACTOR" == "$AUTHOR" ]] || maintainer "$ACTOR" || exit 0
           # A re-run acts as whoever started the first run.
           if [[ -n "$TRIGGERING_ACTOR" && "$TRIGGERING_ACTOR" != "$ACTOR" ]]; then
             maintainer "$TRIGGERING_ACTOR" || exit 0
           fi
           echo "run=true" >> "$GITHUB_OUTPUT"
-          echo "on-demand=$on_demand" >> "$GITHUB_OUTPUT"
 
-  run:
-    name: Archestra ${{ inputs.kind }}
+  review:
+    name: Archestra Review
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.timeout-minutes }}
+    timeout-minutes: 90
     # A newer review of the pull request replaces this one. Only a run the
     # gate let through can replace it.
     concurrency:
-      group: archestra-runtime-review-${{ github.repository }}-${{ github.event.pull_request.number || github.run_id }}-${{ inputs.kind }}
-      cancel-in-progress: ${{ inputs.kind == 'review' }}
-    # The caller grants at least these: a called job cannot ask for more
-    # than its caller grants.
+      group: archestra-runtime-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     permissions:
       contents: read # Read the repository.
       pull-requests: write # Post the review comment and inline comments.
-      checks: read # Count the failing checks of the reviewed commit.
-      actions: read # Read failing jobs, logs and annotations for the CI triage.
-      id-token: write # Short-lived identity for the optional private staging tunnel and the Archestra sign-in.
+      checks: read # Give the reviewer the checks of the reviewed commit.
+      actions: read # Read failing jobs, logs and annotations for the reviewer.
+      id-token: write # Short-lived identity for the private staging tunnel and the Archestra sign-in.
     steps:
-      # No token for this actor (token sign-in), no gateway or agents, or a fix
-      # without a GitHub App: skip with a notice, do not fail the job.
-      - name: Check the actor's Archestra token
-        id: token
-        env:
-          ARCHESTRA_TOKEN: ${{ secrets.ARCHESTRA_TOKEN }}
-          ARCHESTRA_AUTH: ${{ inputs.archestra-auth }}
-          FAIL_ON: ${{ inputs.fail-on }}
-          GATEWAY_URL: ${{ inputs.gateway-url }}
-          AGENTS: ${{ inputs.agents }}
-          APP_ID: ${{ secrets.APP_ID }}
-          KIND: ${{ inputs.kind }}
-          PRIVATE_STAGING: ${{ inputs.private-staging-access }}
+      # The staging trust and the review gateway accept exactly one identity:
+      # this file on this repository's main branch. The log shows the identity
+      # the job presents, so a refusal is read off the run. The token itself
+      # is never printed.
+      - name: Show the job's identity
         shell: bash
         run: |
-          if [[ "$PRIVATE_STAGING" == "true" && "$KIND" != "review" ]]; then
-            echo "::error::Private staging access is limited to pull request reviews."
-            exit 1
-          fi
-          if [[ "$ARCHESTRA_AUTH" != "token" && "$ARCHESTRA_AUTH" != "github-actions" ]]; then
-            echo "::error::archestra-auth must be token or github-actions."
-            exit 1
-          fi
-          if [[ "$FAIL_ON" != "error" && "$FAIL_ON" != "never" ]]; then
-            echo "::error::fail-on must be error or never."
-            exit 1
-          fi
-          if [[ "$ARCHESTRA_AUTH" == "github-actions" && "$KIND" != "review" ]]; then
-            echo "::notice::The GitHub Actions sign-in serves reviews only, so the command is ignored."
-          elif [[ "$ARCHESTRA_AUTH" == "token" && -z "$ARCHESTRA_TOKEN" ]]; then
-            echo "::notice::No Archestra token for this actor. Store their platform token as the secret ARCHESTRA_TOKEN_<LOGIN> to get reviews."
-          elif [[ -z "$GATEWAY_URL" ]]; then
-            echo "::notice::The ARCHESTRA_REVIEW_GATEWAY_URL variable is not set, so no review runs."
-          elif [[ -z "${AGENTS//[[:space:]]/}" ]]; then
-            echo "::notice::The ARCHESTRA_REVIEW_AGENTS variable is not set, so no review runs."
-          elif [[ "$KIND" == "fix" && -z "$APP_ID" ]]; then
-            echo "::notice::No GitHub App for fixes (ARCHESTRA_REVIEW_APP_ID), so the command is ignored."
-          else
-            echo "available=true" >> "$GITHUB_OUTPUT"
-            if [[ -n "$APP_ID" ]]; then
-              echo "app=true" >> "$GITHUB_OUTPUT"
-            fi
-          fi
+          curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=archestra-review-identity" |
+            python3 -c '
+          import base64, json, sys
+          payload = json.load(sys.stdin)["value"].split(".")[1]
+          claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+          for name in ("job_workflow_ref", "workflow_ref", "repository", "event_name", "actor"):
+              print(f"{name}={claims.get(name)}")
+          ' || echo "::warning::Could not read the job's identity."
 
-      # A tunnel failure never stops the job here: the review is skipped, and
-      # the last step fails the job unless fail-on is "never". A constant,
-      # because GitHub evaluates continue-on-error of a composite action step
-      # with the action's own inputs, so inputs.fail-on reads empty there.
+      # A tunnel failure never stops the job: the review is skipped, and the
+      # step's error says why.
       - name: Connect to private staging
         id: iap
-        if: steps.token.outputs.available == 'true' && inputs.private-staging-access
         continue-on-error: true
         uses: archestra-ai/.github/actions/staging-iap@59e195ddb9346697aadaff1b114c95fad1747673 # v1.8.1
         with:
-          gateway-url: ${{ inputs.gateway-url }}
-
-      # A private repository: the runtime clones with a token that can only
-      # read contents. A public repository needs none.
-      - name: Mint the clone token
-        if: >-
-          steps.token.outputs.available == 'true' && steps.token.outputs.app == 'true' &&
-          inputs.kind == 'review' && github.event.repository.private &&
-          steps.iap.outcome != 'failure'
-        id: clone-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: read
-
-      - name: Mint the push token
-        if: steps.token.outputs.available == 'true' && inputs.kind == 'fix'
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: write
-          permission-pull-requests: write
-          permission-actions: read
+          gateway-url: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || 'https://frontend.archestra.dev/v1/mcp/416c32d5-8c40-4bf3-8544-212c200e3ca2' }}
 
       # A canceled job (a newer push) stops its runtime run in this step,
       # while the tunnel is still up, and records itself in the review comment.
-      - name: Review or fix on the Archestra runtime
-        if: steps.token.outputs.available == 'true' && steps.iap.outcome != 'failure'
-        continue-on-error: ${{ inputs.fail-on == 'never' }}
+      - name: Review on the Archestra runtime
+        if: steps.iap.outcome != 'failure'
+        continue-on-error: true
         uses: archestra-ai/code-review-action@d6284f66b55fb6684b490bfdaad1f9b33cab8776 # v0.6.1
         with:
-          # A review request is not an event the action reviews on its own.
-          mode: ${{ needs.gate.outputs.on-demand == 'true' && 'review' || 'auto' }}
-          archestra-gateway-url: ${{ inputs.gateway-url }}
-          archestra-auth: ${{ inputs.archestra-auth }}
-          # Read only with archestra-auth "token"; the GitHub Actions sign-in needs no secret.
-          archestra-token: ${{ secrets.ARCHESTRA_TOKEN }}
-          review-event: ${{ inputs.review-event }}
-          agents: ${{ inputs.agents }}
+          mode: auto
+          archestra-gateway-url: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || 'https://frontend.archestra.dev/v1/mcp/416c32d5-8c40-4bf3-8544-212c200e3ca2' }}
+          archestra-auth: github-actions
+          review-event: request-changes
+          agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS || 'f788ec75-dcb1-4bb8-b1ec-7a9d01e1b79d,fe2ddf73-451b-4d21-b97b-8e8e25675bca,42d6092b-583a-40e3-8dce-8025b5a0f61b,c1928e8c-25e9-489c-a50e-3384da952615' }}
           strategy: rotate
           retries: 1
           timeout-minutes: 30
           # Below the job's limit, so the action stops its last attempt and
           # reports it while the tunnel is still up.
           overall-timeout-minutes: 80
-          # error: an unavailable review fails the check instead of passing green.
-          fail-on: ${{ inputs.fail-on }}
-          fix-commands: ${{ inputs.fix-commands }}
-          clone-token: ${{ steps.clone-token.outputs.token || (inputs.clone-with-job-token && github.event.repository.private && github.token) || '' }}
-          fix-token: ${{ steps.app-token.outputs.token }}
-          fix-timeout-minutes: 45
+          # The check never blocks a merge: an unavailable review is reported
+          # in the review comment, not as a failed job.
+          fail-on: never
+          fix-commands: false
           ci-rerun: false
 
       - name: Close private staging access
-        id: close
         if: always() && steps.iap.outcome != 'skipped'
         continue-on-error: true
         uses: archestra-ai/.github/actions/staging-iap@59e195ddb9346697aadaff1b114c95fad1747673 # v1.8.1
         with:
           operation: stop
-
-      # The team's pending request in the reviewer list ends with the review,
-      # so the next request starts a new one.
-      - name: Clear the review request
-        if: always() && needs.gate.outputs.on-demand == 'true'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-          TEAM: ${{ inputs.review-team }}
-        shell: bash
-        run: |
-          jq -n --arg team "$TEAM" '{team_reviewers: [$team]}' |
-            gh api -X DELETE "repos/$REPOSITORY/pulls/$PR/requested_reviewers" --input - > /dev/null
-
-      # With fail-on "never", a review outage leaves the job green: the failed
-      # step and its error still show, but no merge waits on it.
-      - name: Report a private staging failure
-        if: >-
-          !cancelled() && inputs.fail-on != 'never' &&
-          (steps.iap.outcome == 'failure' || steps.close.outcome == 'failure')
-        shell: bash
-        run: |
-          echo "::error::Private staging access failed; the step above says why."
-          exit 1
