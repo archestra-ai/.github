@@ -22,9 +22,9 @@
 # - Change requests: a blocking finding (medium or above) requests changes;
 #   a later review that finds nothing blocking dismisses it and says so.
 #   Fixed findings' threads are resolved.
-# - Ineligible pull requests skip the review. For eligible pull requests,
-#   tunnel and runtime failures fail the check; completed reviews use the
-#   App's change requests for findings. A merge group gets a passing job.
+# - The check never fails: the job passes when it skips and when the review
+#   cannot finish; the run summary and the review comment say why. Only the
+#   App's change request can hold a merge. A merge group gets a passing job.
 # - A ruleset delivers only opened, synchronize and reopened: no comment
 #   commands, team review requests or ready-for-review events reach it.
 #
