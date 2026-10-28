@@ -138,6 +138,28 @@ jobs:
               print(f"{name}={claims.get(name)}")
           ' || echo "::warning::Could not read the job's identity."
 
+      # Temporary diagnostics for the wrong-host TLS failure. Fixed public
+      # sources and synthetic credentials only; the probe never runs the action.
+      - name: Checkout the routing probe
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: archestra-ai/.github
+          ref: f3ef88a6567311609e4f961137b892b090863e20
+          path: .review-routing-probe
+          persist-credentials: false
+      - name: Use the diagnostic Node runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Probe GitHub routing before the tunnel
+        continue-on-error: true
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --max-time 30 \
+            https://raw.githubusercontent.com/archestra-ai/code-review-action/e3b79886c7b43645bf4fe8816af77700421547a9/dist/index.js \
+            --output "$RUNNER_TEMP/review-action-probe.mjs"
+          node .review-routing-probe/actions/staging-iap/probe-transport.mjs "$RUNNER_TEMP/review-action-probe.mjs" before
+
       # A tunnel failure never stops the job: the review is skipped, and the
       # step's error says why.
       - name: Connect to private staging
@@ -146,6 +168,12 @@ jobs:
         uses: archestra-ai/.github/actions/staging-iap@59e195ddb9346697aadaff1b114c95fad1747673 # v1.8.1
         with:
           gateway-url: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || 'https://frontend.archestra.dev/v1/mcp/416c32d5-8c40-4bf3-8544-212c200e3ca2' }}
+
+      - name: Probe GitHub routing after the tunnel
+        if: steps.iap.outcome != 'failure'
+        continue-on-error: true
+        shell: bash
+        run: node .review-routing-probe/actions/staging-iap/probe-transport.mjs "$RUNNER_TEMP/review-action-probe.mjs" after
 
       # A canceled job (a newer push) stops its runtime run in this step,
       # while the tunnel is still up, and records itself in the review comment.
