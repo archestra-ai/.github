@@ -32,6 +32,27 @@ for (const hostname of hosts) {
     emit({ dns: hostname, code: error.code });
   }
 }
+// TCP connects fire before TLS validation. This records the actual destination
+// even when the TLS handshake fails, without logging headers or certificate keys.
+channel("net.client.socket").subscribe(({ socket }) => {
+  let hostname;
+  let destination;
+  socket.on("lookup", (error, address, family, host) => {
+    if (!hosts.has(host)) return;
+    hostname = host;
+    emit({ tcpLookup: host, address, family, code: error?.code });
+  });
+  socket.once("connect", () => {
+    if (!hosts.has(hostname)) return;
+    destination = socket.remoteAddress;
+    emit({ tcp: hostname, destination, port: socket.remotePort });
+  });
+  socket.once("error", (error) => {
+    if (!hosts.has(hostname)) return;
+    emit({ tcp: hostname, destination, code: error.code,
+      certificateNames: error.cert?.subjectaltname });
+  });
+});
 channel("undici:client:connected").subscribe(({ connectParams, socket }) => {
   if (!hosts.has(connectParams.hostname)) return;
   emit({
