@@ -264,7 +264,7 @@ jobs:
       - name: Review or fix on the Archestra runtime
         if: steps.token.outputs.available == 'true' && steps.iap.outcome != 'failure'
         continue-on-error: ${{ inputs.fail-on == 'never' }}
-        uses: archestra-ai/code-review-action@e3b79886c7b43645bf4fe8816af77700421547a9 # v0.6.0
+        uses: archestra-ai/code-review-action@d6284f66b55fb6684b490bfdaad1f9b33cab8776 # v0.6.1
         with:
           # A review request is not an event the action reviews on its own.
           mode: ${{ needs.gate.outputs.on-demand == 'true' && 'review' || 'auto' }}
