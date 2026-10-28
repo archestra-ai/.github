@@ -144,7 +144,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: archestra-ai/.github
-          ref: f3ef88a6567311609e4f961137b892b090863e20
+          ref: 48dfc28372759b09f1444b18c011815fd1a31622
           path: .review-routing-probe
           persist-credentials: false
       - name: Use the diagnostic Node runtime
