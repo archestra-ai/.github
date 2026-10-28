@@ -1,5 +1,6 @@
 """Linux runner smoke test: local TLS server and fake IAP relay, no cloud access."""
 import importlib.util
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
@@ -66,6 +67,15 @@ class NetworkTests(unittest.TestCase):
             cli.chmod(0o700)
             environment = {"PATH": str(root) + os.pathsep + os.environ["PATH"],
                            "TEST_TLS_PORT": str(server.server_port), "NO_PROXY": "frontend.archestra.dev"}
+            bundle = root / "review-action.mjs"
+            with urlopen("https://raw.githubusercontent.com/archestra-ai/code-review-action/e3b79886c7b43645bf4fe8816af77700421547a9/dist/index.js", timeout=30) as response:
+                bundle.write_bytes(response.read())
+            self.assertEqual(hashlib.sha256(bundle.read_bytes()).hexdigest(),
+                             "0629f51d2f0429d4dfdcc08be90c46e2c6a4b22c1149251849f950529ee93486")
+            probe = Path(__file__).with_name("probe-transport.mjs")
+            # Fixed public endpoints and a synthetic token only. No live review,
+            # workflow identity, cloud credential, or GitHub token is used.
+            subprocess.run(["node", str(probe), str(bundle), "before"], check=True, timeout=60)
             try:
                 for trusted in (False, True):
                     state = root / f"state-{trusted}"
@@ -73,6 +83,8 @@ class NetworkTests(unittest.TestCase):
                         try:
                             if trusted:
                                 tunnel.start(state)
+                                subprocess.run(["node", str(probe), str(bundle), "after"], check=True, timeout=60,
+                                               env={**os.environ, "NODE_EXTRA_CA_CERTS": str(cert)})
                                 with urlopen("https://frontend.archestra.dev/auth/sign-in",
                                              context=ssl.create_default_context(cafile=str(cert)), timeout=10) as response:
                                     self.assertEqual(response.read(), b"frontend.archestra.dev")
