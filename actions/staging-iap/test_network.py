@@ -4,6 +4,7 @@ import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
+import socket
 import ssl
 import subprocess
 import tempfile
@@ -36,7 +37,10 @@ with socket.socket() as listener:
 
 
 class Handler(BaseHTTPRequestHandler):
+    requests = []
+
     def do_GET(self):
+        Handler.requests.append((self.headers["Host"], self.path))
         self.send_response(200)
         self.end_headers()
         self.wfile.write(self.headers["Host"].encode())
@@ -45,9 +49,27 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def dial(context, server_hostname):
+    """Dial the tunnel the way the caller does: local port, gateway hostname for TLS."""
+    with socket.create_connection(("127.0.0.1", tunnel.PORT), timeout=10) as raw, \
+            context.wrap_socket(raw, server_hostname=server_hostname) as tls:
+        tls.sendall(f"GET /auth/sign-in HTTP/1.1\r\nHost: {tunnel.HOST}\r\nConnection: close\r\n\r\n".encode())
+        response = b""
+        while chunk := tls.recv(65536):
+            response += chunk
+    return response
+
+
 @unittest.skipUnless(os.environ.get("RUN_NETWORK_TESTS") == "1", "Linux Actions runner only")
 class NetworkTests(unittest.TestCase):
-    def test_normal_https_uses_the_tunnel_and_untrusted_tls_is_rejected(self):
+    def assert_runner_untouched(self, hosts):
+        self.assertEqual(Path("/etc/hosts").read_text(), hosts)
+        rules = subprocess.run(["sudo", "-n", "iptables", "-t", "nat", "-S", "OUTPUT"],
+                               check=True, capture_output=True, text=True).stdout
+        for needle in ("127.0.0.2", tunnel.MARKER, str(tunnel.PORT)):
+            self.assertNotIn(needle, rules)
+
+    def test_health_check_dials_the_tunnel_directly_and_untrusted_tls_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             cert, key = root / "cert.pem", root / "key.pem"
@@ -66,7 +88,7 @@ class NetworkTests(unittest.TestCase):
             cli.write_text(RELAY)
             cli.chmod(0o700)
             environment = {"PATH": str(root) + os.pathsep + os.environ["PATH"],
-                           "TEST_TLS_PORT": str(server.server_port), "NO_PROXY": "frontend.archestra.dev"}
+                           "TEST_TLS_PORT": str(server.server_port)}
             bundle = root / "review-action.mjs"
             with urlopen("https://raw.githubusercontent.com/archestra-ai/code-review-action/e3b79886c7b43645bf4fe8816af77700421547a9/dist/index.js", timeout=30) as response:
                 bundle.write_bytes(response.read())
@@ -76,27 +98,48 @@ class NetworkTests(unittest.TestCase):
             # Fixed public endpoints and a synthetic token only. No live review,
             # workflow identity, cloud credential, or GitHub token is used.
             subprocess.run(["node", str(probe), str(bundle), "before"], check=True, timeout=60)
+            hosts = Path("/etc/hosts").read_text()
+            trusted_context = ssl.create_default_context(cafile=str(cert))
             try:
                 for trusted in (False, True):
                     state = root / f"state-{trusted}"
+                    Handler.requests.clear()
                     with patch.dict(os.environ, {**environment, "CURL_CA_BUNDLE": str(cert) if trusted else "/etc/ssl/certs/ca-certificates.crt"}):
                         try:
-                            if trusted:
-                                tunnel.start(state)
-                                subprocess.run(["node", str(probe), str(bundle), "after"], check=True, timeout=60,
-                                               env={**os.environ, "NODE_EXTRA_CA_CERTS": str(cert)})
-                                with urlopen("https://frontend.archestra.dev/auth/sign-in",
-                                             context=ssl.create_default_context(cafile=str(cert)), timeout=10) as response:
-                                    self.assertEqual(response.read(), b"frontend.archestra.dev")
-                            else:
-                                with self.assertRaises(subprocess.CalledProcessError):
+                            with patch.object(tunnel.subprocess, "run", wraps=tunnel.subprocess.run) as run:
+                                if trusted:
                                     tunnel.start(state)
+                                else:
+                                    with self.assertRaises(subprocess.CalledProcessError):
+                                        tunnel.start(state)
+                            # The only command after the tunnel is up is the curl health check,
+                            # which dials the local port and keeps the gateway hostname for TLS.
+                            commands = [call.args[0] for call in run.call_args_list]
+                            self.assertEqual([command for command in commands if command[0] == "curl"],
+                                             [commands[0]])
+                            self.assertEqual(commands[0][-3:], ("--connect-to", f"{tunnel.HOST}:443:127.0.0.1:{tunnel.PORT}",
+                                                                f"https://{tunnel.HOST}/auth/sign-in"))
+                            self.assertFalse([command for command in commands if command[0] == "sudo"])
+                            if trusted:
+                                # The tunnel is up and the runner is unchanged: no hosts entry, no NAT
+                                # rule, so no other name can resolve to the tunnel.
+                                self.assert_runner_untouched(hosts)
+                                self.assertEqual(Handler.requests, [(tunnel.HOST, "/auth/sign-in")])
+                                # The probe's "after" phase expects the hostname to be routed on the
+                                # runner; nothing routes it now, so GitHub is probed while the tunnel
+                                # is up without that staging fetch.
+                                subprocess.run(["node", str(probe), str(bundle), "during"], check=True, timeout=60,
+                                               env={**os.environ, "NODE_EXTRA_CA_CERTS": str(cert)})
+                                head, _, body = dial(trusted_context, tunnel.HOST).partition(b"\r\n\r\n")
+                                self.assertIn(b" 200 ", head.split(b"\r\n")[0])
+                                self.assertEqual(body, b"frontend.archestra.dev")
+                                # The gateway hostname is the TLS servername; the local address is not.
+                                with self.assertRaises(ssl.SSLCertVerificationError):
+                                    dial(trusted_context, "127.0.0.1")
                         finally:
                             tunnel.stop(state)
-                    self.assertNotIn(tunnel.MARKER, Path("/etc/hosts").read_text())
-                    rule = subprocess.run(["sudo", "iptables", "-t", "nat", "-C", "OUTPUT", *tunnel.RULE],
-                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    self.assertNotEqual(rule.returncode, 0)
+                    self.assertFalse((state / "pid").exists())
+                    self.assert_runner_untouched(hosts)
                     time.sleep(0.3)
             finally:
                 server.shutdown()

@@ -1,10 +1,12 @@
+import contextlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 spec = importlib.util.spec_from_file_location("tunnel", Path(__file__).with_name("tunnel.py"))
 tunnel = importlib.util.module_from_spec(spec)
@@ -50,7 +52,7 @@ class TunnelBoundaryTests(unittest.TestCase):
             tunnel.stop(Path(directory))
             run.assert_not_called()
 
-    def test_failed_iap_start_removes_its_overrides_and_preserves_other_processes(self):
+    def test_cleanup_only_signals_its_own_tunnel_and_never_uses_sudo(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)
             (state / "pid").write_text("1234")
@@ -59,7 +61,33 @@ class TunnelBoundaryTests(unittest.TestCase):
                 tunnel.stop(state)
                 kill.assert_not_called()
                 self.assertFalse((state / "pid").exists())
-                self.assertEqual(run.call_args_list[0].args[0][-len(tunnel.RULE):], tunnel.RULE)
+                # Ownership is checked with ps alone: no hosts entry or NAT rule exists to remove.
+                self.assertEqual([call.args[0][:3] for call in run.call_args_list], [("ps", "-p", "1234")])
+
+    def test_start_health_checks_the_tunnel_directly_and_leaves_the_runner_alone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state"
+            process = MagicMock(pid=4321)
+            process.poll.return_value = None
+            with patch.object(tunnel.subprocess, "Popen", return_value=process) as popen, \
+                    patch.object(tunnel.subprocess, "run") as run, \
+                    patch.object(tunnel.socket, "socket", MagicMock()), \
+                    patch.object(tunnel.socket, "create_connection", MagicMock()), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                tunnel.start(state)
+                self.assertIn(f"--local-host-port=127.0.0.1:{tunnel.PORT}", popen.call_args.args[0])
+                self.assertEqual((state / "pid").read_text(), "4321")
+                # Exactly one command after the tunnel is up: the curl health check that
+                # dials the local port with the real hostname for SNI and verification.
+                commands = [call.args[0] for call in run.call_args_list]
+                self.assertEqual([command[0] for command in commands], ["curl"])
+                self.assertEqual(commands[0][-3:], ("--connect-to", f"{tunnel.HOST}:443:127.0.0.1:{tunnel.PORT}",
+                                                    f"https://{tunnel.HOST}/auth/sign-in"))
+                self.assertEqual(output.getvalue(),
+                                 "Private staging HTTPS verified through IAP; certificate checks remain enabled.\n")
+                with self.assertRaises(RuntimeError):
+                    tunnel.start(state)
+                self.assertEqual([command[0] for command in commands], ["curl"])
 
 
 if __name__ == "__main__":
