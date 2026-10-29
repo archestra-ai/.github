@@ -22,9 +22,9 @@
 # - Change requests: a blocking finding (medium or above) requests changes;
 #   a later review that finds nothing blocking dismisses it and says so.
 #   Fixed findings' threads are resolved.
-# - Ineligible pull requests skip the review. For eligible pull requests,
-#   tunnel and runtime failures fail the check; completed reviews use the
-#   App's change requests for findings. A merge group gets a passing job.
+# - The check never fails: the job passes when it skips and when the review
+#   cannot finish; the run summary and the review comment say why. Only the
+#   App's change request can hold a merge. A merge group gets a passing job.
 # - A ruleset delivers only opened, synchronize and reopened: no comment
 #   commands, team review requests or ready-for-review events reach it.
 #
@@ -160,9 +160,11 @@ jobs:
             --output "$RUNNER_TEMP/review-action-probe.mjs"
           node .review-routing-probe/actions/staging-iap/probe-transport.mjs "$RUNNER_TEMP/review-action-probe.mjs" before
 
-      # Fail the required check if private staging cannot be reached.
+      # A tunnel failure never fails the required check: the review is skipped,
+      # and the step's error says why.
       - name: Connect to private staging
         id: iap
+        continue-on-error: true
         uses: archestra-ai/.github/actions/staging-iap@59e195ddb9346697aadaff1b114c95fad1747673 # v1.8.1
         with:
           gateway-url: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || 'https://frontend.archestra.dev/v1/mcp/416c32d5-8c40-4bf3-8544-212c200e3ca2' }}
@@ -173,11 +175,42 @@ jobs:
         shell: bash
         run: node .review-routing-probe/actions/staging-iap/probe-transport.mjs "$RUNNER_TEMP/review-action-probe.mjs" after
 
+      # The same lookup at the C library level, with and without AI_ADDRCONFIG,
+      # which is the one difference between the two lookups the probe above
+      # records (net.connect adds that flag; dns.lookup does not).
+      - name: Probe the system resolver after the tunnel
+        if: steps.iap.outcome != 'failure'
+        continue-on-error: true
+        shell: bash
+        run: |
+          echo "--- /etc/hosts"; cat /etc/hosts
+          echo "--- nsswitch"; grep -E '^hosts:' /etc/nsswitch.conf
+          echo "--- resolv.conf"; grep -vE '^#|^$' /etc/resolv.conf
+          echo "--- getent ahosts"; getent ahosts api.github.com
+          echo "--- resolvectl"; resolvectl query api.github.com 2>&1 | head -4 || true
+          echo "--- python getaddrinfo"
+          python3 - <<'PY'
+          import socket
+          for label, flags in (("plain", 0), ("AI_ADDRCONFIG", socket.AI_ADDRCONFIG)):
+              try:
+                  addresses = sorted({a[4][0] for a in socket.getaddrinfo("api.github.com", 443, socket.AF_UNSPEC, socket.SOCK_STREAM, 0, flags)})
+              except OSError as error:
+                  addresses = f"error {error}"
+              print(label, addresses)
+          PY
+          echo "--- node dns.lookup"
+          node -e '
+          const dns = require("node:dns");
+          for (const [label, hints] of [["plain", 0], ["ADDRCONFIG", dns.ADDRCONFIG]]) {
+            dns.lookup("api.github.com", { hints, all: true }, (error, addresses) => console.log(label, error?.code ?? "", JSON.stringify(addresses)));
+          }'
+
       # A canceled job (a newer push) stops its runtime run in this step,
       # while the tunnel is still up, and records itself in the review comment.
       - name: Review on the Archestra runtime
         id: review
         if: steps.iap.outcome == 'success'
+        continue-on-error: true
         uses: archestra-ai/code-review-action@d6284f66b55fb6684b490bfdaad1f9b33cab8776 # v0.6.1
         with:
           mode: auto
@@ -191,14 +224,16 @@ jobs:
           # Below the job's limit, so the action stops its last attempt and
           # reports it while the tunnel is still up.
           overall-timeout-minutes: 80
-          # Operational failures fail the check; findings use change requests.
-          fail-on: error
+          # The check never blocks a merge: an unavailable review is reported
+          # in the review comment and the step below, not as a failed job.
+          fail-on: never
           fix-commands: false
           ci-rerun: false
 
-      # An access refusal can return a non-success status without an action
-      # error. Also reject missing outputs and a skipped review after tunnel failure.
-      - name: Require a review result
+      # A review that did not complete is visible in the run summary, but it
+      # never fails the required check, so a review outage never holds a
+      # merge (an organization decision; only the App's change request can).
+      - name: Report a review that did not complete
         if: ${{ !cancelled() }}
         env:
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
@@ -207,7 +242,7 @@ jobs:
         run: |
           case "$REVIEW_OUTCOME:$REVIEW_STATUS" in
             success:success | success:skipped | success:nothing-to-do) exit 0 ;;
-            *) echo "::error::Review did not complete (outcome=$REVIEW_OUTCOME, status=$REVIEW_STATUS)."; exit 1 ;;
+            *) echo "::warning::Review did not complete (outcome=$REVIEW_OUTCOME, status=$REVIEW_STATUS); the step above says why." ;;
           esac
 
       - name: Close private staging access
