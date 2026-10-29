@@ -1,5 +1,5 @@
 name: Private staging review access
-description: Connect the trusted runtime-review job to staging HTTPS through IAP using short-lived Google credentials.
+description: Open an IAP tunnel from the trusted runtime-review job to staging HTTPS using short-lived Google credentials. The caller dials the connect-to output directly with the gateway hostname as TLS servername; nothing on the runner is rerouted.
 inputs:
   operation:
     description: Start or stop the job's tunnel.
@@ -7,6 +7,10 @@ inputs:
   gateway-url:
     description: Existing private staging MCP URL; used only to validate the destination.
     default: ""
+outputs:
+  connect-to:
+    description: Local host:port of the tunnel after start. Dial it directly with frontend.archestra.dev as the TLS servername; the hostname itself is not routed on the runner.
+    value: ${{ steps.tunnel.outputs.connect-to }}
 runs:
   using: composite
   steps:
@@ -25,8 +29,13 @@ runs:
         workload_identity_provider: projects/354887056155/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider
         setup_gcloud: "true"
     - name: Manage the staging tunnel
+      id: tunnel
       shell: bash
       env:
         ACTION_DIRECTORY: ${{ github.action_path }}
         OPERATION: ${{ inputs.operation }}
-      run: python3 "$ACTION_DIRECTORY/tunnel.py" "$OPERATION"
+      run: |
+        python3 "$ACTION_DIRECTORY/tunnel.py" "$OPERATION"
+        if [ "$OPERATION" = start ]; then
+          echo "connect-to=127.0.0.1:18443" >> "$GITHUB_OUTPUT"
+        fi

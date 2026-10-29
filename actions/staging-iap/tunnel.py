@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Job-local routing for a fixed, end-to-end TLS IAP destination. No PR checkout."""
+"""A fixed, end-to-end TLS IAP tunnel to staging, dialed directly by the caller. No PR checkout."""
 import json
 import os
 from pathlib import Path
@@ -15,8 +15,6 @@ HOST = "frontend.archestra.dev"
 PORT = 18443
 MARKER = "archestra-runtime-review-iap"
 ORG_ID = "216022683"
-RULE = ["-d", "127.0.0.2/32", "-p", "tcp", "--dport", "443", "-m", "comment",
-        "--comment", MARKER, "-j", "REDIRECT", "--to-ports", str(PORT)]
 
 
 def check():
@@ -49,10 +47,6 @@ def stop(directory):
     state = directory / "pid"
     if not state.exists():
         return
-    # Only this action's marked host entry and exact NAT rule are removed.
-    subprocess.run(["sudo", "iptables", "-t", "nat", "-D", "OUTPUT", *RULE],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    run("sudo", "sed", "-i", f"/ # {MARKER}$/d", "/etc/hosts")
     pid = int(state.read_text())
     try:
         # Verify ownership before signaling, in case the process exited and its PID was reused.
@@ -67,9 +61,6 @@ def stop(directory):
 def start(directory):
     if (directory / "pid").exists():
         raise RuntimeError("A review tunnel is already registered; refusing to reuse it.")
-    for line in Path("/etc/hosts").read_text().splitlines():
-        if HOST in line.split("#", 1)[0].split()[1:]:
-            raise RuntimeError("The staging host already has a local override; refusing to replace it.")
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", PORT))
     directory.mkdir(mode=0o700)
@@ -92,14 +83,12 @@ def start(directory):
                 time.sleep(0.2)
         else:
             raise RuntimeError("IAP tunnel startup timed out.")
-        # curl keeps the real hostname for SNI and certificate verification.
-        health = ["curl", "--fail", "--silent", "--show-error", "--noproxy", "*",
-                  "--max-time", "20", "--output", "/dev/null"]
-        run(*health, "--connect-to", f"{HOST}:443:127.0.0.1:{PORT}", f"https://{HOST}/auth/sign-in")
-        run("sudo", "tee", "-a", "/etc/hosts", input=f"\n127.0.0.2 {HOST} # {MARKER}\n",
-            text=True, stdout=subprocess.DEVNULL)
-        run("sudo", "iptables", "-t", "nat", "-A", "OUTPUT", *RULE)
-        run(*health, f"https://{HOST}/auth/sign-in")
+        # The tunnel is dialed directly, the way the caller does: curl keeps the real
+        # hostname for SNI and certificate verification, and nothing on the runner
+        # (hosts file, NAT rules) is changed, so no other name can resolve to it.
+        run("curl", "--fail", "--silent", "--show-error", "--noproxy", "*",
+            "--max-time", "20", "--output", "/dev/null",
+            "--connect-to", f"{HOST}:443:127.0.0.1:{PORT}", f"https://{HOST}/auth/sign-in")
         print("Private staging HTTPS verified through IAP; certificate checks remain enabled.")
     except BaseException:
         stop(directory)
