@@ -100,6 +100,7 @@ class NetworkTests(unittest.TestCase):
             subprocess.run(["node", str(probe), str(bundle), "before"], check=True, timeout=60)
             hosts = Path("/etc/hosts").read_text()
             trusted_context = ssl.create_default_context(cafile=str(cert))
+            trusted_context.minimum_version = ssl.TLSVersion.TLSv1_2
             try:
                 for trusted in (False, True):
                     state = root / f"state-{trusted}"
