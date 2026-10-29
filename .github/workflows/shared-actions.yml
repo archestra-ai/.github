@@ -24,10 +24,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Test runtime review error propagation
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Test release age policy
         run: python3 -m unittest discover -s actions/cargo-release-age -p 'test_*.py'
       - name: Test Vercel deployment arguments and failures
         run: python3 -m unittest discover -s actions/vercel-deploy -p 'test_*.py'
+      - name: Use the review action's Node runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
       - name: Test private review access boundaries and cleanup
         env:
           RUN_NETWORK_TESTS: "1"
