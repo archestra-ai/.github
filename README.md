@@ -21,14 +21,6 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
   minimum publication age for newly introduced crates.io versions. Consumers pin
   the action to a reviewed commit; the checker and behavior tests live here.
 
-## Claude PR Reviews
-
-Core maintainers can enable reviews for their PRs by running `claude setup-token`, then pasting the token into this command's prompt while signed into their own GitHub account:
-
-```bash
-gh secret set "CLAUDE_CODE_OAUTH_TOKEN_$(gh api user --jq '.login | ascii_upcase | gsub("-"; "_")')" --org archestra-ai --visibility selected --repos .github,archestra,OpenAPPA
-```
-
 ## Archestra Runtime Reviews
 
 [archestra-ai/code-review-action](https://github.com/archestra-ai/code-review-action) reviews a pull request on an Archestra Agent Runtime and posts the review as the Archestra Lobster App, with inline findings. [`archestra-runtime-review.yml`](.github/workflows/archestra-runtime-review.yml) runs it on every pull request of every repository in the organization: an organization ruleset with "Require workflows to pass before merging" names this file on `main`, as the zizmor rollout does. No repository holds a workflow of its own, and a change merged here is live everywhere at once.
