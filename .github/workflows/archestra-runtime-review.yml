@@ -162,7 +162,7 @@ jobs:
           archestra-connect-to: ${{ steps.iap.outputs.connect-to }}
           archestra-auth: github-actions
           review-event: request-changes
-          agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS || 'f788ec75-dcb1-4bb8-b1ec-7a9d01e1b79d,fe2ddf73-451b-4d21-b97b-8e8e25675bca,42d6092b-583a-40e3-8dce-8025b5a0f61b,c1928e8c-25e9-489c-a50e-3384da952615' }}
+          agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS || '5ccca2af-4b5c-45f0-b05f-e5160c9103bc,77393a44-a7f2-4d8e-b28f-bc48ccfeca95,f7c55d1f-d69d-4f4f-b7a3-c8eb9b1ef955,504b5c4a-0fe7-4344-8e19-5609df890673' }}
           strategy: rotate
           retries: 1
           timeout-minutes: 30
