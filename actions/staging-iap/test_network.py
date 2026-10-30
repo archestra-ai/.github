@@ -41,9 +41,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         Handler.requests.append((self.headers["Host"], self.path))
+        body = self.headers["Host"].encode()
         self.send_response(200)
+        # A sized body: newer curl (Ubuntu 26.04) rejects a body that ends at a TCP
+        # close without a TLS close_notify, which is all this server sends.
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(self.headers["Host"].encode())
+        self.wfile.write(body)
 
     def log_message(self, *_):
         pass
