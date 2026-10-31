@@ -153,7 +153,7 @@ jobs:
         id: review
         if: steps.iap.outcome == 'success'
         continue-on-error: true
-        uses: archestra-ai/code-review-action@18f758b707dc2c799113bdca26bab5d5efbcd2f9 # v0.7.0
+        uses: archestra-ai/code-review-action@394fca66e63501d19a4547847c3d26065159edfc # v0.9.0
         with:
           mode: auto
           archestra-gateway-url: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || 'https://frontend.archestra.dev/v1/mcp/416c32d5-8c40-4bf3-8544-212c200e3ca2' }}
@@ -165,6 +165,11 @@ jobs:
           agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS || '5ccca2af-4b5c-45f0-b05f-e5160c9103bc,77393a44-a7f2-4d8e-b28f-bc48ccfeca95,f7c55d1f-d69d-4f4f-b7a3-c8eb9b1ef955,504b5c4a-0fe7-4344-8e19-5609df890673' }}
           strategy: rotate
           retries: 1
+          # The action asks for the smallest tier with two CPUs; on its own that
+          # is a tier too small for a type check of a large repository, which the
+          # kernel then kills. Eight GiB selects the medium tier; a run killed for
+          # memory is tried again with more either way.
+          min-memory-gib: 8
           timeout-minutes: 30
           # Below the job's limit, so the action stops its last attempt and
           # reports it while the tunnel is still up.
