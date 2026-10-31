@@ -28,9 +28,8 @@
 # - A ruleset delivers only opened, synchronize and reopened: no comment
 #   commands, team review requests or ready-for-review events reach it.
 #
-# The ARCHESTRA_REVIEW_GATEWAY_URL, ARCHESTRA_REVIEW_AGENTS and
-# ARCHESTRA_REVIEW_MIN_MEMORY_GIB variables of a repository override the
-# staging gateway, review agents and run memory below.
+# The ARCHESTRA_REVIEW_GATEWAY_URL and ARCHESTRA_REVIEW_AGENTS variables of a
+# repository override the staging gateway and review agents below.
 name: Archestra Runtime Review
 
 on:
@@ -170,7 +169,7 @@ jobs:
           # is a tier too small for a type check of a large repository, which the
           # kernel then kills. Eight GiB selects the medium tier; a run killed for
           # memory is tried again with more either way.
-          min-memory-gib: ${{ vars.ARCHESTRA_REVIEW_MIN_MEMORY_GIB || '8' }}
+          min-memory-gib: 8
           timeout-minutes: 30
           # Below the job's limit, so the action stops its last attempt and
           # reports it while the tunnel is still up.
