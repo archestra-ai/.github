@@ -167,9 +167,11 @@ jobs:
           retries: 1
           # The action asks for the smallest tier with two CPUs; on its own that
           # is a tier too small for a type check of a large repository, which the
-          # kernel then kills. Eight GiB selects the medium tier; a run killed for
-          # memory is tried again with more either way.
-          min-memory-gib: 8
+          # kernel then kills. Seven GiB selects the medium tier both on the
+          # default tiers (8 GiB) and on staging (7 GiB); eight would skip to
+          # the large tier there. A run killed for memory is tried again with
+          # more either way.
+          min-memory-gib: 7
           timeout-minutes: 30
           # Below the job's limit, so the action stops its last attempt and
           # reports it while the tunnel is still up.
