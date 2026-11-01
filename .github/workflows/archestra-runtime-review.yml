@@ -165,13 +165,9 @@ jobs:
           agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS || '5ccca2af-4b5c-45f0-b05f-e5160c9103bc,77393a44-a7f2-4d8e-b28f-bc48ccfeca95,f7c55d1f-d69d-4f4f-b7a3-c8eb9b1ef955,504b5c4a-0fe7-4344-8e19-5609df890673' }}
           strategy: rotate
           retries: 1
-          # The action asks for the smallest tier with two CPUs; on its own that
-          # is a tier too small for a type check of a large repository, which the
-          # kernel then kills. Seven GiB selects the medium tier both on the
-          # default tiers (8 GiB) and on staging (7 GiB); eight would skip to
-          # the large tier there. A run killed for memory is tried again with
-          # more either way.
-          min-memory-gib: 7
+          # No memory floor: the action asks for the smallest tier with two CPUs,
+          # so a review starts on the small tier. A run killed for memory is
+          # tried again on a larger tier when the Agent's scaleup tier allows one.
           timeout-minutes: 30
           # Below the job's limit, so the action stops its last attempt and
           # reports it while the tunnel is still up.
