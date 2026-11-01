@@ -170,6 +170,9 @@ jobs:
           # they are proven to fit there. Remove it then; without it the action
           # asks for the smallest tier with two CPUs.
           min-memory-gib: 5
+          # A re-review that continues the last review's workspace keeps that
+          # run's size, so it would skip the floor. Remove with the floor.
+          incremental-review: false
           timeout-minutes: 30
           # Below the job's limit, so the action stops its last attempt and
           # reports it while the tunnel is still up.
