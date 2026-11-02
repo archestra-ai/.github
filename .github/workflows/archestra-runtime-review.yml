@@ -22,9 +22,9 @@
 # - Change requests: a blocking finding (medium or above) requests changes;
 #   a later review that finds nothing blocking dismisses it and says so.
 #   Fixed findings' threads are resolved.
-# - The check never fails: the job passes when it skips and when the review
-#   cannot finish; the run summary and the review comment say why. Only the
-#   App's change request can hold a merge. A merge group gets a passing job.
+# - Ineligible pull requests skip the review. For eligible pull requests,
+#   infrastructure failures fail the check; completed reviews use the App's
+#   change requests for findings. A merge group gets a passing job.
 # - A ruleset delivers only opened, synchronize and reopened: no comment
 #   commands, team review requests or ready-for-review events reach it.
 #
@@ -138,8 +138,8 @@ jobs:
               print(f"{name}={claims.get(name)}")
           ' || echo "::warning::Could not read the job's identity."
 
-      # A tunnel failure never fails the required check: the review is skipped,
-      # and the step's error says why.
+      # Let the result guard report a failed tunnel as an incomplete review;
+      # the review action itself must not run without staging access.
       - name: Connect to private staging
         id: iap
         continue-on-error: true
@@ -175,16 +175,15 @@ jobs:
           # Below the job's limit, so the action stops its last attempt and
           # reports it while the tunnel is still up.
           overall-timeout-minutes: 80
-          # The check never blocks a merge: an unavailable review is reported
-          # in the review comment and the step below, not as a failed job.
+          # Findings use change requests. The result guard below fails the job
+          # if the action fails or returns an incomplete review status.
           fail-on: never
           fix-commands: false
           ci-rerun: false
 
-      # A review that did not complete is visible in the run summary, but it
-      # never fails the required check, so a review outage never holds a
-      # merge (an organization decision; only the App's change request can).
-      - name: Report a review that did not complete
+      # Require an explicit completed result or intentional action-level skip.
+      # A skipped step after tunnel failure has no status and must fail.
+      - name: Require a review result
         if: ${{ !cancelled() }}
         env:
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
@@ -193,7 +192,7 @@ jobs:
         run: |
           case "$REVIEW_OUTCOME:$REVIEW_STATUS" in
             success:success | success:skipped | success:nothing-to-do) exit 0 ;;
-            *) echo "::warning::Review did not complete (outcome=$REVIEW_OUTCOME, status=$REVIEW_STATUS); the step above says why." ;;
+            *) echo "::error::Review did not complete (outcome=$REVIEW_OUTCOME, status=$REVIEW_STATUS); the step above says why."; exit 1 ;;
           esac
 
       - name: Close private staging access

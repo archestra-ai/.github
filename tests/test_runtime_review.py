@@ -1,7 +1,4 @@
-"""Exercise the required review's result report without cloud credentials.
-
-The check never fails: an incomplete review is a warning in the run, never a
-red required check, so a review outage never holds a merge."""
+"""Exercise the review's completion guard without cloud credentials."""
 import os
 from pathlib import Path
 import subprocess
@@ -21,7 +18,7 @@ class ReviewFailureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = WORKFLOW.read_text()
-        cls.guard = step(cls.source, "Report a review that did not complete")
+        cls.guard = step(cls.source, "Require a review result")
         cls.script = textwrap.dedent(cls.guard.split("        run: |\n", 1)[1])
 
     def check_result(self, outcome, status):
@@ -38,28 +35,27 @@ class ReviewFailureTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.assertEqual(self.check_result("success", status).returncode, 0)
 
-    def test_runtime_and_authentication_failures_warn_and_pass(self):
+    def test_runtime_and_authentication_failures_cannot_report_green(self):
         for status in ("unavailable", "aborted", "error", "unauthorized", "", "unexpected"):
             with self.subTest(status=status):
                 result = self.check_result("success", status)
-                self.assertEqual(result.returncode, 0)
-                self.assertIn("::warning::Review did not complete", result.stdout)
-                self.assertNotIn("::error::", result.stdout)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("::error::Review did not complete", result.stdout)
 
-    def test_tls_failure_missing_outputs_and_failed_tunnel_warn_and_pass(self):
+    def test_tls_failure_missing_outputs_and_failed_tunnel_cannot_report_green(self):
         # TLS throws before status outputs exist; a failed tunnel skips the action.
-        for outcome, status in (("failure", ""), ("failure", "success"),
-                                ("skipped", ""), ("", ""), ("cancelled", "success")):
-            with self.subTest(outcome=outcome, status=status):
-                result = self.check_result(outcome, status)
-                self.assertEqual(result.returncode, 0)
-                self.assertIn("::warning::Review did not complete", result.stdout)
+        for outcome in ("failure", "skipped", "", "cancelled", "unexpected"):
+            for status in ("success", "skipped", "nothing-to-do", ""):
+                with self.subTest(outcome=outcome, status=status):
+                    result = self.check_result(outcome, status)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("::error::Review did not complete", result.stdout)
 
-    def test_workflow_never_fails_the_check_and_always_cleans_up(self):
+    def test_result_guard_handles_operational_errors_and_always_cleans_up(self):
         tunnel = step(self.source, "Connect to private staging")
         review = step(self.source, "Review on the Archestra runtime")
         cleanup = step(self.source, "Close private staging access")
-        # Operational failures stay visible in the run but never fail the job.
+        # Both steps defer failure reporting to the result guard.
         for block in (tunnel, review):
             self.assertRegex(block, r"(?m)^        continue-on-error: true$")
         self.assertIn("          fail-on: never", review)
