@@ -121,8 +121,6 @@ jobs:
       checks: read # Give the reviewer the checks of the reviewed commit.
       actions: read # Read failing jobs, logs and annotations for the reviewer.
       id-token: write # Short-lived identity for the private staging tunnel and the Archestra sign-in.
-    env:
-      CODE_REVIEW_MCP_URL: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || secrets.ARCHESTRA_CODE_REVIEW_GATEWAY_URL }}
     steps:
       # The staging trust and the review gateway accept exactly one identity:
       # this file on this repository's main branch. The log shows the identity
@@ -146,7 +144,9 @@ jobs:
       - name: Connect to private staging
         id: iap
         continue-on-error: true
-        uses: archestra-ai/.github/actions/staging-iap@358e1a48c4967f4b1fe908b8981babc23150142f
+        uses: archestra-ai/.github/actions/staging-iap@358e1a48c4967f4b1fe908b8981babc23150142f # v1.14.0-rc.1
+        env:
+          CODE_REVIEW_MCP_URL: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || secrets.ARCHESTRA_CODE_REVIEW_GATEWAY_URL }}
         with:
           gateway-url: ${{ env.CODE_REVIEW_MCP_URL }}
 
@@ -157,6 +157,8 @@ jobs:
         if: steps.iap.outcome == 'success'
         continue-on-error: true
         uses: archestra-ai/code-review-action@40d5ed91d74c5e9d403c75dffa31bf120db7688c # v0.10.0
+        env:
+          CODE_REVIEW_MCP_URL: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || secrets.ARCHESTRA_CODE_REVIEW_GATEWAY_URL }}
         with:
           mode: auto
           archestra-gateway-url: ${{ env.CODE_REVIEW_MCP_URL }}
@@ -201,6 +203,6 @@ jobs:
       - name: Close private staging access
         if: always() && steps.iap.outcome != 'skipped'
         continue-on-error: true
-        uses: archestra-ai/.github/actions/staging-iap@358e1a48c4967f4b1fe908b8981babc23150142f
+        uses: archestra-ai/.github/actions/staging-iap@358e1a48c4967f4b1fe908b8981babc23150142f # v1.14.0-rc.1
         with:
           operation: stop

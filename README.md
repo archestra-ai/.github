@@ -30,7 +30,7 @@ What it does, and what it needs:
 - It reviews a pull request only when a maintainer (admin or maintain role on the repository) opened it and started the run. Every other pull request runs nothing and says nothing. A blocking finding requests changes; a later clean review dismisses it and says so. Ineligible pull requests still skip the review. For eligible pull requests, tunnel, authentication, and runtime errors fail the required check; completed reviews use change requests for blocking findings.
 - The Archestra Lobster App must be installed on the repositories. Each maintainer connects GitHub once in Archestra (their name, **Credentials**, `lobster-github`) and has use on the review gateway and its agents.
 - The review gateway accepts the job's GitHub Actions identity, and Archestra's VPN-only staging is reached through a short-lived IAP tunnel. Both trust exactly `archestra-ai/.github/.github/workflows/archestra-runtime-review.yml@refs/heads/main`; the tunnel trust lives in `archestra-ai/infra` (`gcp/workload_identity`). Neither changes when this file changes.
-- The `ARCHESTRA_REVIEW_GATEWAY_URL` and `ARCHESTRA_REVIEW_AGENTS` variables of a repository override the staging gateway and agents written in the file.
+- The `ARCHESTRA_REVIEW_GATEWAY_URL` repository variable (falling back to the `ARCHESTRA_CODE_REVIEW_GATEWAY_URL` secret) configures the staging gateway URL, and the `ARCHESTRA_REVIEW_AGENTS` variable overrides the review agents written in the file.
 - A ruleset delivers only opened, synchronize and reopened: comment commands, team review requests and ready-for-review events do not reach it.
 
 To change the review, change this file and merge. The only pins that move are the commits of the actions it uses.
