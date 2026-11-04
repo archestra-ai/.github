@@ -35,7 +35,7 @@ def check():
     url = urlsplit(os.environ.get("GATEWAY_URL", ""))
     if not (url.scheme == "https" and url.hostname == HOST and url.port in (None, 443)
             and not url.username and not url.password and not url.query and not url.fragment
-            and re.fullmatch(r"/v1/mcp/[0-9a-fA-F-]{36}", url.path)):
+            and re.fullmatch(r"/v1/mcp/[A-Za-z0-9][A-Za-z0-9-]{0,127}", url.path)):
         raise RuntimeError("Private review access accepts only the existing frontend.archestra.dev MCP gateway.")
 
 
