@@ -23,9 +23,11 @@ class TunnelBoundaryTests(unittest.TestCase):
                            "GITHUB_REPOSITORY": "archestra-ai/archestra", "GITHUB_REPOSITORY_ID": "1020144870",
                            "GITHUB_REPOSITORY_OWNER_ID": "216022683",
                            "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event),
-                           "GATEWAY_URL": "https://frontend.archestra.dev/v1/mcp/416c32d5-8c40-4bf3-8544-212c200e3ca2"}
+                           "GATEWAY_URL": "https://frontend.archestra.dev/v1/mcp/code-review"}
             with patch.dict(os.environ, environment, clear=True):
                 tunnel.check()
+                with patch.dict(os.environ, {"GATEWAY_URL": "https://frontend.archestra.dev/v1/mcp/00000000-0000-4000-8000-000000000000"}):
+                    tunnel.check()
                 # Another repository of the organization passes with its own same-repository pull request.
                 website = {"GITHUB_REPOSITORY": "archestra-ai/website", "GITHUB_REPOSITORY_ID": "555"}
                 event.write_text(json.dumps({"pull_request": {"head": {"repo": {"id": 555}},
@@ -37,7 +39,7 @@ class TunnelBoundaryTests(unittest.TestCase):
                 for key, value in [("GITHUB_REPOSITORY_OWNER_ID", "999"), ("GITHUB_REPOSITORY", "attacker/archestra"),
                                    ("GITHUB_REPOSITORY_ID", "123"), ("GITHUB_EVENT_NAME", "pull_request_target"),
                                    ("RUNNER_OS", "macOS"), ("GATEWAY_URL", "https://frontend.archestra.dev.evil.test/v1/mcp/a"),
-                                   ("GATEWAY_URL", "http://frontend.archestra.dev/v1/mcp/416c32d5-8c40-4bf3-8544-212c200e3ca2"),
+                                   ("GATEWAY_URL", "http://frontend.archestra.dev/v1/mcp/code-review"),
                                    ("GATEWAY_URL", environment["GATEWAY_URL"] + "?token=anything")]:
                     with self.subTest(key=key, value=value), patch.dict(os.environ, {key: value}):
                         with self.assertRaises(RuntimeError):
