@@ -28,8 +28,8 @@
 # - A ruleset delivers only opened, synchronize and reopened: no comment
 #   commands, team review requests or ready-for-review events reach it.
 #
-# The ARCHESTRA_REVIEW_GATEWAY_URL and ARCHESTRA_REVIEW_AGENTS variables of a
-# repository override the staging gateway and review agents below.
+# The ARCHESTRA_REVIEW_GATEWAY_URL variable of a repository overrides the
+# staging gateway below.
 name: Archestra Runtime Review
 
 on:
@@ -162,11 +162,6 @@ jobs:
           archestra-connect-to: ${{ steps.iap.outputs.connect-to }}
           archestra-auth: github-actions
           review-event: request-changes
-          # The Lobster Code Review agents on the staging gateway, in rotation
-          # order: 5ccca2af Claude Code, 77393a44 Codex, f7c55d1f Grok,
-          # 504b5c4a Kimi, f4c1274d Copilot.
-          agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS || '5ccca2af-4b5c-45f0-b05f-e5160c9103bc,77393a44-a7f2-4d8e-b28f-bc48ccfeca95,f7c55d1f-d69d-4f4f-b7a3-c8eb9b1ef955,504b5c4a-0fe7-4344-8e19-5609df890673,f4c1274d-d149-4927-8997-9f1b7b8b2b03' }}
-          strategy: rotate
           retries: 1
           # No memory floor: the action asks for the smallest tier with two CPUs.
           # A review the kernel killed for memory is retried on a larger tier,
