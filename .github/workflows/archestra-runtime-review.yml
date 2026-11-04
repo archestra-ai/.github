@@ -155,7 +155,7 @@ jobs:
         id: review
         if: steps.iap.outcome == 'success'
         continue-on-error: true
-        uses: archestra-ai/code-review-action@84c76bbbfb84ee7035b7ac4df864f423506d0a1d # v0.11.0-rc.1
+        uses: archestra-ai/code-review-action@b73336b627af6b34c9578eea0c37fe92a29465f5 # v0.11.1
         env:
           CODE_REVIEW_MCP_URL: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || secrets.ARCHESTRA_CODE_REVIEW_GATEWAY_URL }}
         with:
