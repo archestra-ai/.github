@@ -29,8 +29,7 @@
 #   commands, team review requests or ready-for-review events reach it.
 #
 # The ARCHESTRA_REVIEW_GATEWAY_URL variable (or ARCHESTRA_CODE_REVIEW_GATEWAY_URL
-# secret) and ARCHESTRA_REVIEW_AGENTS variable configure the staging gateway and
-# review agents below.
+# secret) configures the staging gateway below.
 name: Archestra Runtime Review
 
 on:
@@ -144,7 +143,7 @@ jobs:
       - name: Connect to private staging
         id: iap
         continue-on-error: true
-        uses: archestra-ai/.github/actions/staging-iap@358e1a48c4967f4b1fe908b8981babc23150142f # v1.14.0-rc.1
+        uses: archestra-ai/.github/actions/staging-iap@c3001f82a468e05482bd7c8cd08ff97f94e80d2e # v1.14.0
         env:
           CODE_REVIEW_MCP_URL: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || secrets.ARCHESTRA_CODE_REVIEW_GATEWAY_URL }}
         with:
@@ -156,7 +155,7 @@ jobs:
         id: review
         if: steps.iap.outcome == 'success'
         continue-on-error: true
-        uses: archestra-ai/code-review-action@40d5ed91d74c5e9d403c75dffa31bf120db7688c # v0.10.0
+        uses: archestra-ai/code-review-action@84c76bbbfb84ee7035b7ac4df864f423506d0a1d # v0.11.0-rc.1
         env:
           CODE_REVIEW_MCP_URL: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || secrets.ARCHESTRA_CODE_REVIEW_GATEWAY_URL }}
         with:
@@ -167,11 +166,6 @@ jobs:
           archestra-connect-to: ${{ steps.iap.outputs.connect-to }}
           archestra-auth: github-actions
           review-event: request-changes
-          # The Lobster Code Review agents on the staging gateway, in rotation
-          # order: 5ccca2af Claude Code, 77393a44 Codex, f7c55d1f Grok,
-          # 504b5c4a Kimi, f4c1274d Copilot.
-          agents: ${{ vars.ARCHESTRA_REVIEW_AGENTS || '5ccca2af-4b5c-45f0-b05f-e5160c9103bc,77393a44-a7f2-4d8e-b28f-bc48ccfeca95,f7c55d1f-d69d-4f4f-b7a3-c8eb9b1ef955,504b5c4a-0fe7-4344-8e19-5609df890673,f4c1274d-d149-4927-8997-9f1b7b8b2b03' }}
-          strategy: rotate
           retries: 1
           # No memory floor: the action asks for the smallest tier with two CPUs.
           # A review the kernel killed for memory is retried on a larger tier,
@@ -203,6 +197,6 @@ jobs:
       - name: Close private staging access
         if: always() && steps.iap.outcome != 'skipped'
         continue-on-error: true
-        uses: archestra-ai/.github/actions/staging-iap@358e1a48c4967f4b1fe908b8981babc23150142f # v1.14.0-rc.1
+        uses: archestra-ai/.github/actions/staging-iap@c3001f82a468e05482bd7c8cd08ff97f94e80d2e # v1.14.0
         with:
           operation: stop
