@@ -116,7 +116,7 @@ jobs:
       cancel-in-progress: true
     permissions:
       contents: read # Read the repository.
-      pull-requests: write # Post the review comment and inline comments.
+      pull-requests: read # Read the pull request; the review posts as the App from sign-in.
       checks: read # Give the reviewer the checks of the reviewed commit.
       actions: read # Read failing jobs, logs and annotations for the reviewer.
       id-token: write # Short-lived identity for the private staging tunnel and the Archestra sign-in.
@@ -165,6 +165,8 @@ jobs:
           # for TLS; nothing on the runner is rerouted, so no other name can end up there.
           archestra-connect-to: ${{ steps.iap.outputs.connect-to }}
           archestra-auth: github-actions
+          # Only private repositories need an ephemeral read-only token inside the runtime.
+          clone-token: ${{ github.event.repository.private && github.token || '' }}
           review-event: request-changes
           # Findings use change requests. The result guard below fails the job
           # if the action fails or returns an incomplete review status.
