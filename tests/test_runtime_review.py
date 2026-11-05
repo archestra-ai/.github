@@ -76,6 +76,12 @@ class ReviewFailureTests(unittest.TestCase):
         self.assertNotIn("id-token: write", queue)
         self.assertIn("    needs: gate", review_job)
         self.assertIn("    if: needs.gate.outputs.run == 'true'", review_job)
+        self.assertIn("      pull-requests: read", review_job)
+        self.assertNotIn("pull-requests: write", review_job)
+        self.assertIn(
+            "          clone-token: ${{ github.event.repository.private && github.token || '' }}",
+            review_job,
+        )
         self.assertIn("!github.event.pull_request.draft", self.source)
         self.assertIn('[[ "$ACTOR" == "$AUTHOR" ]] || exit 0', self.source)
 
