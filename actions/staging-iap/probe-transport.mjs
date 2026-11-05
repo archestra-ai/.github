@@ -73,7 +73,7 @@ channel("undici:client:connectError").subscribe(({ connectParams, error }) => {
 // entry point is not run: this probe cannot sign in, post a review, or launch a run.
 let source = await readFile(bundlePath, "utf8");
 if (createHash("sha256").update(source).digest("hex") !==
-    "0629f51d2f0429d4dfdcc08be90c46e2c6a4b22c1149251849f950529ee93486") {
+    "2ffbf126f466b327ea4f6ff5f6dabf9126d2b2bcd21523d2b790d927b9028bf3") {
   throw new Error("Unexpected review action bundle");
 }
 const entry = /\nmain\(\)\.catch\(\(error\d*\) => \{\n  setFailed\(`The action stopped with an error: \$\{errorMessage\(error\d*\)\}`\);\n\}\);/;

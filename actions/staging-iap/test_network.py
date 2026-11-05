@@ -94,10 +94,10 @@ class NetworkTests(unittest.TestCase):
             environment = {"PATH": str(root) + os.pathsep + os.environ["PATH"],
                            "TEST_TLS_PORT": str(server.server_port)}
             bundle = root / "review-action.mjs"
-            with urlopen("https://raw.githubusercontent.com/archestra-ai/code-review-action/e3b79886c7b43645bf4fe8816af77700421547a9/dist/index.js", timeout=30) as response:
+            with urlopen("https://raw.githubusercontent.com/archestra-ai/code-review-action/cf5083fd796aaf91be16a6812f322c6c9c0a03a7/dist/index.js", timeout=30) as response:
                 bundle.write_bytes(response.read())
             self.assertEqual(hashlib.sha256(bundle.read_bytes()).hexdigest(),
-                             "0629f51d2f0429d4dfdcc08be90c46e2c6a4b22c1149251849f950529ee93486")
+                             "2ffbf126f466b327ea4f6ff5f6dabf9126d2b2bcd21523d2b790d927b9028bf3")
             probe = Path(__file__).with_name("probe-transport.mjs")
             # Fixed public endpoints and a synthetic token only. No live review,
             # workflow identity, cloud credential, or GitHub token is used.
