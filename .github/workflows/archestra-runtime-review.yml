@@ -155,7 +155,7 @@ jobs:
         id: review
         if: steps.iap.outcome == 'success'
         continue-on-error: true
-        uses: archestra-ai/code-review-action@b15c5c8225ade3ee6b82c8efe49b954077eb911e # v0.11.3
+        uses: archestra-ai/code-review-action@cf5083fd796aaf91be16a6812f322c6c9c0a03a7 # v0.12.0
         env:
           CODE_REVIEW_MCP_URL: ${{ vars.ARCHESTRA_REVIEW_GATEWAY_URL || secrets.ARCHESTRA_CODE_REVIEW_GATEWAY_URL }}
         with:
@@ -166,14 +166,6 @@ jobs:
           archestra-connect-to: ${{ steps.iap.outputs.connect-to }}
           archestra-auth: github-actions
           review-event: request-changes
-          retries: 1
-          # No memory floor: the action asks for the smallest tier with two CPUs.
-          # A review the kernel killed for memory is retried on a larger tier,
-          # up to twice, when the gateway reported the tier it ran on.
-          timeout-minutes: 30
-          # Below the job's limit, so the action stops its last attempt and
-          # reports it while the tunnel is still up.
-          overall-timeout-minutes: 80
           # Findings use change requests. The result guard below fails the job
           # if the action fails or returns an incomplete review status.
           fail-on: never
