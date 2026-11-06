@@ -1,0 +1,183 @@
+# Runs Release Please for the calling repository and authenticates as a GitHub
+# App, never with the job's GITHUB_TOKEN.
+#
+# - The organization does not let GITHUB_TOKEN create or approve pull
+#   requests, and pull requests opened with it do not start the checks that
+#   rulesets require. An App token can do both.
+# - The token is scoped to the calling repository only, with contents and
+#   pull-requests write. Pull-requests write also covers release PR labels and
+#   comments, so the token never requests issues.
+# - The job holds no GITHUB_TOKEN permissions. Callers can call it with
+#   `permissions: {}`.
+#
+# The job runs two Release Please passes in this order, so a release created
+# for a merged release PR (and its tag) exists before the next release PR is
+# calculated:
+#   1. create GitHub releases for merged release PRs (skip-github-release
+#      turns this pass off)
+#   2. create or update release PRs (skip-github-pull-request turns this pass
+#      off)
+# A caller that has to run its own steps between the two passes calls this
+# workflow twice, once with each pass turned off.
+#
+# Keep steps that authenticate to a cloud provider in the caller's own jobs. A
+# job that runs here presents this file as its `job_workflow_ref`, so it no
+# longer matches trust that names the caller's workflow file.
+#
+# Usage:
+#
+#   jobs:
+#     release-please:
+#       permissions: {}
+#       uses: archestra-ai/.github/.github/workflows/release-please.yml@<sha> # vX.Y.Z
+#       secrets:
+#         APP_ID: ${{ secrets.ARCHESTRA_RELEASER_GITHUB_APP_ID }}
+#         APP_PRIVATE_KEY: ${{ secrets.ARCHESTRA_RELEASER_GITHUB_APP_PRIVATE_KEY }}
+#
+#   Downstream jobs read `needs.release-please.outputs.<name>`. Per-path
+#   outputs of a multi-package manifest come from the `releases` JSON, for
+#   example `fromJSON(needs.release-please.outputs.releases)['platform--version']`.
+name: Release Please
+
+on:
+  workflow_call:
+    inputs:
+      config-file:
+        description: Release Please config file, relative to the repository root.
+        type: string
+        default: .github/release-please/release-please-config.json
+      manifest-file:
+        description: Release Please manifest file, relative to the repository root.
+        type: string
+        default: .github/release-please/.release-please-manifest.json
+      target-branch:
+        description: Branch to release from. Empty uses the repository's default branch.
+        type: string
+        default: ""
+      skip-github-release:
+        description: Skip the pass that creates GitHub releases for merged release PRs.
+        type: boolean
+        default: false
+      skip-github-pull-request:
+        description: Skip the pass that creates or updates release PRs.
+        type: boolean
+        default: false
+    secrets:
+      APP_ID:
+        description: ID of a GitHub App installed on the calling repository with contents and pull-requests write.
+        required: true
+      APP_PRIVATE_KEY:
+        description: Private key of that GitHub App.
+        required: true
+    outputs:
+      releases_created:
+        description: "'true' when the release pass created at least one release."
+        value: ${{ jobs.release-please.outputs.releases_created }}
+      paths_released:
+        description: JSON array of the package paths that were released.
+        value: ${{ jobs.release-please.outputs.paths_released }}
+      release_created:
+        description: "'true' when a release was created for the root package ('.')."
+        value: ${{ jobs.release-please.outputs.release_created }}
+      tag_name:
+        description: Tag of the root package's new release.
+        value: ${{ jobs.release-please.outputs.tag_name }}
+      version:
+        description: Version of the root package's new release.
+        value: ${{ jobs.release-please.outputs.version }}
+      major:
+        description: Major version of the root package's new release.
+        value: ${{ jobs.release-please.outputs.major }}
+      minor:
+        description: Minor version of the root package's new release.
+        value: ${{ jobs.release-please.outputs.minor }}
+      patch:
+        description: Patch version of the root package's new release.
+        value: ${{ jobs.release-please.outputs.patch }}
+      sha:
+        description: Commit of the root package's new release.
+        value: ${{ jobs.release-please.outputs.sha }}
+      html_url:
+        description: URL of the root package's new release.
+        value: ${{ jobs.release-please.outputs.html_url }}
+      upload_url:
+        description: Asset upload URL of the root package's new release.
+        value: ${{ jobs.release-please.outputs.upload_url }}
+      releases:
+        description: JSON object with every output of the release pass, including per-path `<path>--<output>` keys.
+        value: ${{ jobs.release-please.outputs.releases }}
+      prs_created:
+        description: "'true' when the pull request pass created or updated at least one release PR."
+        value: ${{ jobs.release-please.outputs.prs_created }}
+      pr:
+        description: JSON of the first release PR the pull request pass created or updated.
+        value: ${{ jobs.release-please.outputs.pr }}
+      prs:
+        description: JSON array of every release PR the pull request pass created or updated.
+        value: ${{ jobs.release-please.outputs.prs }}
+
+permissions: {}
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {} # Every GitHub write uses the App token below.
+    outputs:
+      releases_created: ${{ steps.releases.outputs.releases_created || 'false' }}
+      paths_released: ${{ steps.releases.outputs.paths_released || '[]' }}
+      release_created: ${{ steps.releases.outputs.release_created || 'false' }}
+      tag_name: ${{ steps.releases.outputs.tag_name }}
+      version: ${{ steps.releases.outputs.version }}
+      major: ${{ steps.releases.outputs.major }}
+      minor: ${{ steps.releases.outputs.minor }}
+      patch: ${{ steps.releases.outputs.patch }}
+      sha: ${{ steps.releases.outputs.sha }}
+      html_url: ${{ steps.releases.outputs.html_url }}
+      upload_url: ${{ steps.releases.outputs.upload_url }}
+      releases: ${{ toJSON(steps.releases.outputs) }}
+      prs_created: ${{ steps.pull-requests.outputs.prs_created || 'false' }}
+      pr: ${{ steps.pull-requests.outputs.pr }}
+      prs: ${{ steps.pull-requests.outputs.prs || '[]' }}
+    steps:
+      # In a called workflow, github.repository is the caller's repository.
+      - name: Resolve the calling repository
+        id: repository
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=${REPOSITORY#*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.repository.outputs.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          skip-token-revoke: false
+
+      - name: Create releases for merged release PRs
+        id: releases
+        if: ${{ !inputs.skip-github-release }}
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: ${{ inputs.config-file }}
+          manifest-file: ${{ inputs.manifest-file }}
+          target-branch: ${{ inputs.target-branch }}
+          skip-github-pull-request: true
+
+      - name: Create or update release PRs
+        id: pull-requests
+        if: ${{ !inputs.skip-github-pull-request }}
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: ${{ inputs.config-file }}
+          manifest-file: ${{ inputs.manifest-file }}
+          target-branch: ${{ inputs.target-branch }}
+          skip-github-release: true
