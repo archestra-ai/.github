@@ -21,6 +21,18 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
   minimum publication age for newly introduced crates.io versions. Consumers pin
   the action to a reviewed commit; the checker and behavior tests live here.
 
+## Release Please
+
+[`release-please.yml`](.github/workflows/release-please.yml) is a reusable workflow that runs Release Please for the calling repository. It always authenticates as a GitHub App and never uses the job's `GITHUB_TOKEN`, which the organization does not allow to create or approve pull requests.
+
+- The App token is scoped to the calling repository with `contents: write` and `pull-requests: write` only. The App must be installed on that repository.
+- Callers pass the App's ID and private key as the `APP_ID` and `APP_PRIVATE_KEY` secrets and can call it with `permissions: {}`.
+- The job creates releases for merged release PRs first, then creates or updates release PRs. `skip-github-release` and `skip-github-pull-request` turn either pass off, so a caller that needs its own steps in between calls the workflow twice.
+- Outputs mirror `googleapis/release-please-action` for the root package (`release_created`, `tag_name`, `version`, ...) and for PRs (`prs_created`, `pr`, `prs`). Per-path outputs come from the `releases` JSON, for example `fromJSON(needs.release-please.outputs.releases)['platform--version']`.
+- Keep cloud sign-in (for example Google Workload Identity) in the caller's jobs. A job inside this workflow presents `archestra-ai/.github/.github/workflows/release-please.yml` as its `job_workflow_ref`, not the caller's file.
+
+Pin callers to a reviewed full commit SHA, as with the shared actions.
+
 ## Archestra Runtime Reviews
 
 [archestra-ai/code-review-action](https://github.com/archestra-ai/code-review-action) reviews a pull request on an Archestra Agent Runtime and posts the review as the Archestra Lobster App, with inline findings. [`archestra-runtime-review.yml`](.github/workflows/archestra-runtime-review.yml) runs it on every pull request of every repository in the organization: an organization ruleset with "Require workflows to pass before merging" names this file on `main`, as the zizmor rollout does. No repository holds a workflow of its own, and a change merged here is live everywhere at once.
