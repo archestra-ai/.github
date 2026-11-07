@@ -327,10 +327,13 @@ def check_pnpm(repo: Repository) -> list[Finding]:
     workspace_dirs = {parent(p) for p in repo.files if name(p) == "pnpm-workspace.yaml"}
     roots = set(workspace_dirs)
     roots |= {parent(p) for p in repo.files if name(p) == "pnpm-lock.yaml"}
+    # A manifest that only names pnpm (say, for release tooling) installs nothing.
     roots |= {
         parent(p)
         for p in repo.files
-        if name(p) == "package.json" and package_manager(repo, p)[0] == "pnpm"
+        if name(p) == "package.json"
+        and package_manager(repo, p)[0] == "pnpm"
+        and has_js_dependencies(repo, p)
     }
     findings = []
     checked: set[str] = set()

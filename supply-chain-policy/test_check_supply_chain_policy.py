@@ -237,6 +237,10 @@ class PnpmTests(PolicyTest):
         files["package.json"] = '{"packageManager": "pnpm@10.16.0", "dependencies": {"a": "1"}}'
         self.assertEqual(self.check(files), [])
 
+    def test_package_manager_field_without_dependencies_is_ignored(self):
+        files = {"package.json": '{"name": "versioned", "packageManager": "pnpm@10.14.0"}'}
+        self.assertEqual(self.check(files), [])
+
     def test_nested_workspaces_are_checked_separately(self):
         files = self.files(PNPM_SETTINGS)
         files["images/agent/pnpm-workspace.yaml"] = "ignoreScripts: true\n"
