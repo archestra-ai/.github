@@ -10,6 +10,7 @@ triggers, environments, permissions, service accounts and deployment checks stay
 | `google-auth` | `service_account`, `workload_identity_provider` | `setup_gcloud: 'true'`; `registry` also installs gcloud; `token_format: access_token` exposes `access_token`. Also outputs `project_id`, `credentials_file_path`. |
 | `github-app-token` | `app-id`, `private-key` | `owner`, `repositories`, `permission-actions`, `permission-contents`, `permission-issues`, `permission-pull-requests`; outputs `token`. |
 | `vercel-deploy` | `token`, `org-id`, `project-id` | `build-env`: JSON object of non-secret string values; outputs `deployment-url`. Always deploys production. |
+| `release-images-publish` | `token`, `project`, `version`, `images-file` | `latest` (space-separated channels), `charts` (newline-separated `<chart>-<version>.tgz` files), `smoke`, `publisher-repository`; outputs `run-url`. Sends a [release-images](https://github.com/archestra-ai/release-images) request for this run attempt and fails when the publisher run fails. Attest every image and chart in the same job first. |
 | `staging-iap` | `gateway-url` on start | Internal Archestra PR reviews only. Opens the existing IAP staging HTTPS tunnel; call again with `operation: stop` in an `always()` step. Requires `id-token: write`. |
 
 Google callers need job permission `id-token: write`. Authentication uses WIF only;
@@ -26,6 +27,7 @@ Vercel uses CLI `59.15.1`, uploads source and builds remotely. It supports team-
 tokens without `vercel pull` or `--prebuilt`. Keep project-specific verification and
 smoke tests in the caller. Hosted Ubuntu runners supply Python 3 and Node/npm.
 
-Test locally with `python3 -m unittest discover -s actions/vercel-deploy -v`.
+Test locally with `python3 -m unittest discover -s actions/vercel-deploy -v`
+and `python3 -m unittest discover -s actions/release-images-publish -v`.
 The Vercel tests use a fake CLI and never authenticate or deploy.
 To roll back, revert a caller's pin or its migration PR; no credential rotation is required.

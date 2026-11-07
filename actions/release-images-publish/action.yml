@@ -1,0 +1,48 @@
+name: Publish through release-images
+description: Ask archestra-ai/release-images to publish attested staged images and charts to their public names, and wait for its run.
+inputs:
+  token:
+    description: Token of the project's release App for the publisher repository, with Contents write (dispatch) and Actions read (watch).
+    required: true
+  project:
+    description: Project name, as projects/<project>.json in the publisher repository.
+    required: true
+  version:
+    description: Release version without a v prefix, or 0.0.0-smoke.<n> with smoke.
+    required: true
+  images-file:
+    description: 'JSON file {"<public name>": "sha256:<digest>"} of the staged, attested digests.'
+    required: true
+  latest:
+    description: Space-separated :latest channels to move (stable, newest). Empty moves none.
+    default: ""
+  charts:
+    description: Newline-separated chart archives (<chart>-<version>.tgz) the publisher downloads from this run's artifacts.
+    default: ""
+  smoke:
+    description: true sends a dry run that writes scratch names only.
+    default: "false"
+  publisher-repository:
+    description: The publisher repository.
+    default: archestra-ai/release-images
+outputs:
+  run-url:
+    description: The publisher run.
+    value: ${{ steps.publish.outputs.run-url }}
+runs:
+  using: composite
+  steps:
+    - name: Publish through release-images
+      id: publish
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PUBLISH_PROJECT: ${{ inputs.project }}
+        PUBLISH_VERSION: ${{ inputs.version }}
+        PUBLISH_IMAGES_FILE: ${{ inputs.images-file }}
+        PUBLISH_LATEST: ${{ inputs.latest }}
+        PUBLISH_CHARTS: ${{ inputs.charts }}
+        PUBLISH_SMOKE: ${{ inputs.smoke }}
+        PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
+        PUBLISH_SCRIPT: ${{ github.action_path }}/publish.py
+      run: python3 -I "$PUBLISH_SCRIPT"
