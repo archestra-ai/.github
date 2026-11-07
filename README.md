@@ -36,6 +36,7 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
 
 - The App token is scoped to the calling repository with `contents: write` and `pull-requests: write` only. The App must be installed on that repository.
 - Callers pass the App's ID and private key as the `APP_ID` and `APP_PRIVATE_KEY` secrets and can call it with `permissions: {}`.
+- Keep the key in a deployment environment that only release branches can deploy to, and name it in the `environment` input. The calling job cannot set `environment` on a reusable workflow, so this workflow's job does; the caller still passes the secrets by name (`APP_ID: ${{ secrets.APP_ID }}`), and GitHub resolves them from that environment.
 - The job creates releases for merged release PRs first, then creates or updates release PRs. `skip-github-release` and `skip-github-pull-request` turn either pass off, so a caller that needs its own steps in between calls the workflow twice.
 - Outputs mirror `googleapis/release-please-action` for the root package (`release_created`, `tag_name`, `version`, ...) and for PRs (`prs_created`, `pr`, `prs`). Per-path outputs come from the `releases` JSON, for example `fromJSON(needs.release-please.outputs.releases)['platform--version']`.
 - Keep cloud sign-in (for example Google Workload Identity) in the caller's jobs. A job inside this workflow presents `archestra-ai/.github/.github/workflows/release-please.yml` as its `job_workflow_ref`, not the caller's file.
