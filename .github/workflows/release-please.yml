@@ -24,15 +24,22 @@
 # job that runs here presents this file as its `job_workflow_ref`, so it no
 # longer matches trust that names the caller's workflow file.
 #
+# Keep the App's key in a deployment environment that only release branches
+# can deploy to, and name it in `environment`. A job that calls a reusable
+# workflow cannot set `environment` itself, so the job here does. The caller
+# still passes the secrets by name: GitHub resolves them from that environment.
+#
 # Usage:
 #
 #   jobs:
 #     release-please:
 #       permissions: {}
 #       uses: archestra-ai/.github/.github/workflows/release-please.yml@<sha> # vX.Y.Z
+#       with:
+#         environment: releaser
 #       secrets:
-#         APP_ID: ${{ secrets.ARCHESTRA_RELEASER_GITHUB_APP_ID }}
-#         APP_PRIVATE_KEY: ${{ secrets.ARCHESTRA_RELEASER_GITHUB_APP_PRIVATE_KEY }}
+#         APP_ID: ${{ secrets.APP_ID }}
+#         APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
 #
 #   Downstream jobs read `needs.release-please.outputs.<name>`. Per-path
 #   outputs of a multi-package manifest come from the `releases` JSON, for
@@ -62,6 +69,13 @@ on:
         description: Skip the pass that creates or updates release PRs.
         type: boolean
         default: false
+      environment:
+        description: >-
+          Deployment environment that holds APP_ID and APP_PRIVATE_KEY. Empty
+          runs the job outside any environment, with the caller's repository or
+          organization secrets.
+        type: string
+        default: ""
     secrets:
       APP_ID:
         description: ID of a GitHub App installed on the calling repository with contents and pull-requests write.
@@ -123,6 +137,7 @@ jobs:
     name: Release Please
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: ${{ inputs.environment }}
     permissions: {} # Every GitHub write uses the App token below.
     outputs:
       releases_created: ${{ steps.releases.outputs.releases_created || 'false' }}
