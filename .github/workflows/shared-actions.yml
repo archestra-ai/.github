@@ -32,6 +32,8 @@ jobs:
         run: python3 -m unittest discover -s supply-chain-policy -p 'test_*.py'
       - name: Test Vercel deployment arguments and failures
         run: python3 -m unittest discover -s actions/vercel-deploy -p 'test_*.py'
+      - name: Test release-images requests
+        run: python3 -m unittest discover -s actions/release-images-publish -p 'test_*.py'
       - name: Use the review action's Node runtime
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
