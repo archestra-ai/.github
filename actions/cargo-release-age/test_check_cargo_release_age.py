@@ -262,6 +262,53 @@ class ReleaseAgeTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, expected, result.stderr)
 
+    def test_all_lockfiles_finds_tracked_lockfiles_and_checks_new_ones_in_full(self):
+        def git(directory, *args):
+            subprocess.run(
+                ["git", "-C", directory, "-c", "user.name=Test",
+                 "-c", "user.email=test@example.com", *args],
+                check=True, capture_output=True,
+            )
+
+        def run(directory, base):
+            return subprocess.run(
+                ["python3", str(Path(policy.__file__).resolve()),
+                 "--base-ref", base, "--all-lockfiles"],
+                cwd=directory, check=False, capture_output=True, text=True,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            git(directory, "init", "-q")
+            (root / "README.md").write_text("no Rust yet\n")
+            git(directory, "add", ".")
+            git(directory, "commit", "-qm", "baseline")
+            result = run(directory, "HEAD")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("nothing to check", result.stdout)
+            self.assertEqual(run(directory, "missing-base").returncode, 1)
+
+            # A new lockfile, and one in a fixture directory that is skipped.
+            # The fixture's crate is local, so neither needs the registry.
+            for path in ("tool/Cargo.lock", "tests/fixtures/Cargo.lock"):
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_text(lockfile(("local", "1.0.0", None)))
+            git(directory, "add", ".")
+            self.assertEqual(
+                policy.tracked_lockfiles(root), ["tool/Cargo.lock"]
+            )
+            result = run(directory, "HEAD")
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_new_lockfile_is_checked_against_an_empty_base(self):
+        current = lockfile(("example", "1.0.0", policy.CRATES_IO))
+        with patch.object(
+            policy, "urlopen", return_value=registry_response("2026-09-15T00:00:00Z")
+        ):
+            failures = policy.check_versions(policy.EMPTY_LOCKFILE, current, NOW)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("example@1.0.0", failures[0])
+
     def test_command_fails_for_young_release_or_unavailable_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             (Path(directory) / "Cargo.lock").write_text(
