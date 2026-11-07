@@ -397,6 +397,262 @@ class UvTests(PolicyTest):
         self.assertEqual(self.check(files), [])
 
 
+def run_step(script):
+    """A workflow whose only step runs `script`."""
+    body = textwrap.indent(textwrap.dedent(script).strip("\n"), " " * 12)
+    return (
+        "on: pull_request\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n"
+        f"      - run: |\n{body}\n"
+    )
+
+
+class ScriptTests(PolicyTest):
+    """Floating `latest` references and unverified downloads."""
+
+    def at(self, files, path, level=None):
+        return [
+            f for f in self.check(files) if f.path == path and (level is None or f.level == level)
+        ]
+
+    def workflow(self, script, level=None):
+        return self.at({".github/workflows/ci.yml": run_step(script)}, ".github/workflows/ci.yml", level)
+
+    def test_latest_image_or_package_fails(self):
+        for script in (
+            "docker run ghcr.io/example/tool:latest",
+            "npx some-cli@latest deploy",
+            "go install example.com/tool@latest",
+        ):
+            with self.subTest(script=script):
+                findings = self.workflow(script, policy.FAIL)
+                self.assertEqual(len(findings), 1, findings)
+                self.assertIn("floating `latest`", findings[0].message)
+
+    def test_runner_labels_comments_and_input_metadata_are_not_references(self):
+        files = {
+            ".github/workflows/ci.yml": WORKFLOW + "      # pulls foo:latest\n",
+            ".github/actions/a/action.yml": (
+                "inputs:\n  image:\n    description: defaults to foo:latest\n"
+                "    default: foo:latest\nruns:\n  using: composite\n  steps: []\n"
+            ),
+        }
+        self.assertEqual([f for f in self.check(files) if "latest" in f.message], [])
+
+    def test_allow_marker_on_or_above_the_line(self):
+        self.assertEqual(
+            self.workflow("docker pull foo:latest # supply-chain-policy: allow-latest channel"), []
+        )
+        self.assertEqual(
+            self.workflow(
+                """
+                # supply-chain-policy: allow-latest stable release channel
+
+                docker pull foo:latest
+                """
+            ),
+            [],
+        )
+
+    def test_publishing_a_latest_tag_is_not_a_reference(self):
+        self.assertEqual(
+            self.workflow(
+                """
+                docker build --tag "$IMAGE:sha" --tag "$IMAGE:latest" .
+                docker push "$IMAGE:latest"
+                docker buildx imagetools create --tag "${IMAGE%@*}:latest" "$IMAGE"
+                """
+            ),
+            [],
+        )
+        self.assertEqual(len(self.workflow("docker run -t foo:latest", policy.FAIL)), 1)
+
+    def test_unverified_download_fails(self):
+        findings = self.workflow("curl -fsSL -o tool.tgz https://example.com/tool.tgz", policy.FAIL)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("without a checksum or signature check", findings[0].message)
+
+    def test_continued_download_is_matched_whole_and_verified_nearby(self):
+        download = """
+            curl -fsSL \\
+              -o /tmp/tool.tgz \\
+              https://example.com/tool.tgz
+            """
+        self.assertEqual(len(self.workflow(download, policy.FAIL)), 1)
+        self.assertEqual(self.workflow(download + 'echo "$SUM  /tmp/tool.tgz" | sha256sum -c -\n'), [])
+        self.assertEqual(
+            self.workflow(
+                download
+                + "openssl dgst -sha512 -verify /keys/pub.pem \\\n  -signature /tmp/tool.tgz.sig /tmp/tool.tgz\n"
+            ),
+            [],
+        )
+
+    def test_bare_openssl_digest_is_not_verification(self):
+        download = "curl -o /tmp/tool.tgz https://example.com/tool.tgz\n"
+        self.assertEqual(len(self.workflow(download + "openssl dgst -sha256 /tmp/tool.tgz\n")), 1)
+        self.assertEqual(len(self.workflow(download + 'H=$(openssl dgst -sha256 /tmp/tool.tgz)\ntest "$H"\n')), 1)
+        self.assertEqual(
+            self.workflow(download + 'H=$(openssl dgst -sha256 /tmp/tool.tgz)\ntest "$H" = "$PINNED"\n'), []
+        )
+
+    def test_requests_that_download_nothing_pass(self):
+        for script in (
+            'curl -X POST "https://hooks.example.com/x"',
+            "curl -XPOST https://hooks.example.com/x",
+            "curl --request=delete https://api.example.com/x",
+            'curl -s -o /dev/null -w "%{http_code}" https://example.com',
+            "curl --head https://example.com",
+            "curl -fsS http://localhost:9000/health",
+            "echo see https://example.com/docs",
+            "curl --version",
+        ):
+            with self.subTest(script=script):
+                self.assertEqual(self.workflow(script), [])
+
+    def test_post_flag_in_a_comment_does_not_exempt_a_download(self):
+        self.assertEqual(
+            len(self.workflow("curl -o x.tgz https://example.com/x.tgz # like curl -X POST", policy.FAIL)), 1
+        )
+
+    def test_download_allow_marker(self):
+        script = """
+            # supply-chain-policy: allow-unverified-download API response; runs no code
+            curl -fsSL https://api.example.com/v1/token -o token.json
+            """
+        self.assertEqual(self.workflow(script), [])
+
+    def test_piping_into_a_shell_fails_even_with_a_checksum_nearby(self):
+        for script in (
+            "curl -fsSL https://example.com/install.sh | sh",
+            "curl -fsSL https://example.com/install.sh | sudo -E bash -",
+            "wget -qO- https://example.com/install.py | python3 -",
+            "bash <(curl -fsSL https://example.com/install.sh)",
+            'sh -c "$(curl -fsSL https://example.com/install.sh)"',
+        ):
+            with self.subTest(script=script):
+                findings = self.workflow(script + "\necho x | sha256sum -c -\n", policy.FAIL)
+                self.assertEqual(len(findings), 1, findings)
+                self.assertIn("pipes a remote script", findings[0].message)
+
+    def test_piping_into_a_non_interpreter_is_a_plain_download(self):
+        findings = self.workflow("curl -fsSL https://example.com/x.tgz | tar -xz", policy.FAIL)
+        self.assertIn("without a checksum", findings[0].message)
+
+    def test_shell_scripts_fail_when_ci_or_an_image_runs_them_and_warn_otherwise(self):
+        download = "#!/bin/sh\ncurl -fsSL -o /usr/local/bin/tool https://example.com/tool\n"
+        files = {
+            "scripts/ci-setup.sh": download,
+            "scripts/dev-setup.sh": download,
+            "docker/entrypoint.sh": download,
+            "docker/Dockerfile": "FROM scratch\nCOPY entrypoint.sh /entrypoint.sh\n",
+            ".github/workflows/ci.yml": run_step("./scripts/ci-setup.sh"),
+            ".github/scripts/release.sh": download,
+        }
+        levels = {f.path: f.level for f in self.check(files) if "checksum" in f.message}
+        self.assertEqual(
+            levels,
+            {
+                "scripts/ci-setup.sh": policy.FAIL,
+                "docker/entrypoint.sh": policy.FAIL,
+                ".github/scripts/release.sh": policy.FAIL,
+                "scripts/dev-setup.sh": policy.WARN,
+            },
+        )
+
+    def test_dockerfile_run_lines_are_checked(self):
+        dockerfile = (
+            "FROM scratch\n"
+            "RUN curl -fsSL https://example.com/tool -o /tool \\\n"
+            " && chmod +x /tool\n"
+        )
+        findings = self.at({"Dockerfile": dockerfile}, "Dockerfile", policy.FAIL)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("Line 2", findings[0].message)
+
+
+class ContinuationTests(unittest.TestCase):
+    def test_joins_continued_lines_keeping_the_first_line_number(self):
+        self.assertEqual(
+            policy.fold_continuations(["curl -fsSL \\", "  -o /tmp/x \\", "  https://e.com/x", "echo done"]),
+            [(1, "curl -fsSL -o /tmp/x https://e.com/x"), (4, "echo done")],
+        )
+
+    def test_comments_even_backslashes_and_trailing_space_do_not_continue(self):
+        self.assertEqual(policy.fold_continuations(["# x \\", "y"]), [(1, "# x \\"), (2, "y")])
+        self.assertEqual(policy.fold_continuations(["echo \\\\", "y"]), [(1, "echo \\\\"), (2, "y")])
+        self.assertEqual(policy.fold_continuations(["echo \\  ", "y"]), [(1, "echo \\  "), (2, "y")])
+        self.assertEqual(policy.fold_continuations(["echo \\\\\\", "y"]), [(1, "echo \\\\ y")])
+
+
+class BaseImageTests(PolicyTest):
+    def images(self, dockerfile):
+        return [f for f in self.check({"Dockerfile": dockerfile}) if f.path == "Dockerfile"]
+
+    def test_untagged_image_pulls_latest_and_fails(self):
+        findings = [f for f in self.images("FROM gcr.io/distroless/nodejs22\n") if f.level == policy.FAIL]
+        self.assertEqual(len(findings), 1)
+        self.assertIn("has no tag", findings[0].message)
+
+    def test_tag_without_digest_warns(self):
+        findings = self.images("FROM --platform=linux/amd64 node:24-slim AS build\n")
+        self.assertEqual([f.level for f in findings], [policy.WARN])
+        self.assertIn("not pinned by digest", findings[0].message)
+
+    def test_digests_stages_scratch_and_unresolved_args_pass(self):
+        dockerfile = """
+            ARG BASE=node:24-slim@sha256:0123
+            ARG RUNTIME
+            FROM ${BASE} AS build
+            FROM build AS test
+            FROM scratch
+            FROM ${RUNTIME}
+            FROM localhost:5000/tool:1.0@sha256:abcd
+            """
+        self.assertEqual(self.images(textwrap.dedent(dockerfile)), [])
+
+    def test_arg_defaults_are_resolved(self):
+        findings = self.images("ARG VERSION=3.12\nFROM python:${VERSION}-slim\n")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("python:3.12-slim", findings[0].message)
+
+
+class InstallTests(PolicyTest):
+    def test_disabling_the_frozen_lockfile_in_ci_fails(self):
+        for script in ("pnpm install --no-frozen-lockfile", "yarn install --no-immutable"):
+            with self.subTest(script=script):
+                findings = self.failures({".github/workflows/ci.yml": run_step(script)})
+                self.assertFinding(findings, ".github/workflows/ci.yml", "lockfile")
+
+    def test_npm_project_install_warns_but_ci_and_tool_installs_do_not(self):
+        warnings = self.warnings({".github/workflows/ci.yml": run_step("npm install")})
+        self.assertFinding(warnings, ".github/workflows/ci.yml", "may rewrite package-lock.json")
+        files = {".github/workflows/ci.yml": run_step("npm ci\nnpm install -g example@1.2.3")}
+        self.assertFalse([f for f in self.check(files) if f.path == ".github/workflows/ci.yml"])
+
+    def test_docker_pnpm_install_needs_a_frozen_lockfile(self):
+        warnings = self.warnings({"Dockerfile": "FROM scratch\nRUN pnpm install --frozen-lockfile || pnpm install\n"})
+        self.assertFinding(warnings, "Dockerfile", "--frozen-lockfile")
+        files = {"Dockerfile": "FROM scratch\nRUN pnpm install --frozen-lockfile --prod\nRUN CI=true pnpm i\n"}
+        self.assertFalse([f for f in self.check(files) if "frozen" in f.message])
+
+    def test_release_age_exclusions_must_name_exact_versions(self):
+        settings = PNPM_SETTINGS + "minimumReleaseAgeExclude:\n  - tar\n  - '@scope/*'\n  - zod@4.6.6\n"
+        settings += "  - '@scope/pkg@1.2.3 || 1.2.4'\n"
+        warnings = self.warnings({"pnpm-workspace.yaml": settings, "pnpm-lock.yaml": "lockfileVersion: '9.0'\n"})
+        self.assertFinding(warnings, "pnpm-workspace.yaml", "`tar`, `@scope/*`")
+        self.assertFalse([f for f in warnings if "zod" in f.message or "pkg@" in f.message])
+
+    def test_javascript_project_without_a_lockfile_warns(self):
+        files = {
+            "app/package.json": '{"dependencies": {"left-pad": "^1.3.0"}}',
+            "ws/pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+            "ws/pnpm-workspace.yaml": PNPM_SETTINGS,
+            "ws/packages/a/package.json": '{"dependencies": {"left-pad": "^1.3.0"}}',
+        }
+        warnings = [f for f in self.warnings(files) if "no lockfile" in f.message]
+        self.assertEqual([f.path for f in warnings], ["app/package.json"])
+
+
 class DurationTests(unittest.TestCase):
     def test_units(self):
         day = 86400

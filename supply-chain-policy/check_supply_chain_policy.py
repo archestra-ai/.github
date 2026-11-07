@@ -75,6 +75,9 @@ def check_repository(root: Path) -> list[Finding]:
     findings += check_bun(repo)
     findings += check_cargo(repo)
     findings += check_uv(repo)
+    findings += check_scripts(repo)
+    findings += check_base_images(repo)
+    findings += check_ci_installs(repo)
     return sorted(findings, key=lambda f: (f.level != FAIL, f.path, f.message))
 
 
@@ -705,6 +708,432 @@ def uv_exclude_newer(repo: Repository, root: str) -> tuple[object, str]:
         if isinstance(data, dict) and "exclude-newer" in data:
             return data["exclude-newer"], candidate
     return None, join(root, "pyproject.toml")
+
+
+# =============================================================================
+# Floating references and unverified downloads
+# =============================================================================
+
+
+def check_scripts(repo: Repository) -> list[Finding]:
+    """Line-based checks over workflows, composite actions, Dockerfiles and
+    shell scripts: floating `latest` references and remote downloads that run
+    without a checksum or signature check.
+
+    Findings fail in what CI and image builds run: `.github/`, composite
+    actions, Dockerfiles and the shell scripts those name. Other shell scripts
+    (developer tooling, mostly) only warn."""
+    findings = []
+    enforced = enforced_scripts(repo)
+    for path in script_files(repo):
+        level = FAIL if path in enforced else WARN
+        lines = fold_continuations(repo.text(path).splitlines())
+        texts = [text for _, text in lines]
+        for index, (number, line) in enumerate(lines):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or stripped.startswith(METADATA_KEYS):
+                continue
+            code = strip_trailing_comment(line)
+            if (
+                LATEST_REFERENCE.search(code)
+                and not PUBLISHES_TAG.search(code)
+                and not has_marker(texts, index, LATEST_ALLOW_MARKER)
+            ):
+                findings.append(
+                    Finding(
+                        level,
+                        path,
+                        f"Line {number}: `{shorten(stripped)}` uses a floating `latest` reference, "
+                        "so a new release runs without review.",
+                        "Pin an exact version or digest. If the newest release is the point (a "
+                        f"release channel, say), add `# {LATEST_ALLOW_MARKER} <reason>` on the "
+                        "line or just above it.",
+                    )
+                )
+            if not REMOTE_URL.search(code) or not DOWNLOADER.search(code):
+                continue
+            if has_marker(texts, index, DOWNLOAD_ALLOW_MARKER):
+                continue
+            if PIPE_TO_INTERPRETER.search(code):
+                # A checksum nearby cannot cover what is piped straight into a shell.
+                findings.append(
+                    Finding(
+                        level,
+                        path,
+                        f"Line {number}: `{shorten(stripped)}` pipes a remote script into an "
+                        "interpreter, which runs whatever the server returns.",
+                        "Download a pinned release to a file, check its SHA-256 (`sha256sum -c`) "
+                        "or signature, then run it.",
+                    )
+                )
+                continue
+            if NOT_A_DOWNLOAD.search(code) or any(prefix in code for prefix in LOCAL_URL_PREFIXES):
+                continue
+            if not has_nearby_verification(texts, index):
+                findings.append(
+                    Finding(
+                        level,
+                        path,
+                        f"Line {number}: `{shorten(stripped)}` downloads a remote file without "
+                        "a checksum or signature check.",
+                        "Verify it within the next 12 lines (`sha256sum -c`, `cosign verify`, "
+                        "`gpg --verify`, `minisign -Vm`, `gh attestation verify`). For a download "
+                        f"that runs no code (an API response, say), add `# {DOWNLOAD_ALLOW_MARKER} "
+                        "<reason>` on the line or just above it.",
+                    )
+                )
+    return findings
+
+
+def script_files(repo: Repository) -> list[str]:
+    return [
+        p
+        for p in repo.files
+        if (p.startswith(".github/") and p.endswith((".yml", ".yaml")))
+        or name(p) in ("action.yml", "action.yaml")
+        or p.endswith(SHELL_SUFFIXES)
+        or is_dockerfile(p)
+    ]
+
+
+def enforced_scripts(repo: Repository) -> set[str]:
+    """Files CI or image builds run: everything under `.github/`, composite
+    actions, Dockerfiles, and shell scripts named by any of those."""
+    runners = [
+        p
+        for p in repo.files
+        if p.startswith(".github/") or name(p) in ("action.yml", "action.yaml") or is_dockerfile(p)
+    ]
+    enforced = set(runners)
+    texts = {p: repo.text(p) for p in runners}
+    combined = "\n".join(texts.values())
+    for script in (p for p in repo.files if p.endswith(SHELL_SUFFIXES) and p not in enforced):
+        parts = script.split("/")
+        # Named by a path of two or more components (`scripts/x.sh`) anywhere,
+        # or by its path relative to a Dockerfile or action next to it.
+        suffixes = ["/".join(parts[i:]) for i in range(len(parts) - 1)]
+        if any(mentions(combined, suffix) for suffix in suffixes) or any(
+            is_under(parent(script), parent(runner))
+            and mentions(text, script[len(parent(runner)) :].lstrip("/"))
+            for runner, text in texts.items()
+            if not runner.startswith(".github/workflows/")
+        ):
+            enforced.add(script)
+    return enforced
+
+
+def mentions(text: str, path: str) -> bool:
+    return re.search(rf"(?<![\w.-]){re.escape(path)}(?![\w.-])", text) is not None
+
+
+SHELL_SUFFIXES = (".sh", ".bash")
+
+
+def is_dockerfile(path: str) -> bool:
+    base = name(path)
+    return base == "Containerfile" or re.fullmatch(r"(.+\.)?[Dd]ockerfile(\..+)?", base) is not None
+
+
+def fold_continuations(lines: list[str]) -> list[tuple[int, str]]:
+    """Join backslash-continued lines so a multi-line command is matched whole;
+    each keeps its first line's number. Comment lines never continue."""
+    folded = []
+    index = 0
+    while index < len(lines):
+        number, line = index + 1, lines[index]
+        while ends_with_continuation(line) and index + 1 < len(lines):
+            line = line[:-1].rstrip() + " " + lines[index + 1].strip()
+            index += 1
+        folded.append((number, line))
+        index += 1
+    return folded
+
+
+def ends_with_continuation(line: str) -> bool:
+    # Only an odd number of trailing backslashes continues a shell line; an
+    # even number is escaped literal backslashes.
+    if not line.endswith("\\") or line.strip().startswith("#"):
+        return False
+    return (len(line) - len(line.rstrip("\\"))) % 2 == 1
+
+
+def strip_trailing_comment(line: str) -> str:
+    return re.split(r"\s#", line, maxsplit=1)[0]
+
+
+def has_marker(lines: list[str], index: int, marker: str) -> bool:
+    """The marker is on the line or on one of the 8 non-blank lines above it."""
+    if marker in lines[index]:
+        return True
+    remaining = 8
+    for previous in reversed(lines[:index]):
+        if not previous.strip():
+            continue
+        if marker in previous:
+            return True
+        remaining -= 1
+        if remaining == 0:
+            break
+    return False
+
+
+def has_nearby_verification(lines: list[str], index: int) -> bool:
+    window = "\n".join(lines[index : index + 12])
+    if any(marker in window for marker in VERIFICATION_COMMANDS):
+        return True
+    # A bare `openssl dgst` only prints a digest. It verifies only next to a
+    # signature check or a comparison with a pinned value.
+    return "openssl dgst" in window and (
+        "-verify" in window or re.search(r'\btest\s+"[^"]*"\s*==?\s', window) is not None
+    )
+
+
+LATEST_ALLOW_MARKER = "supply-chain-policy: allow-latest"
+DOWNLOAD_ALLOW_MARKER = "supply-chain-policy: allow-unverified-download"
+# YAML keys that describe an input rather than run anything.
+METADATA_KEYS = ("description:", "default:")
+LATEST_REFERENCE = re.compile(r"[\w}\])\"'-][:@]latest\b")
+REMOTE_URL = re.compile(r"https?://[^\s\"')]+")
+DOWNLOADER = re.compile(r"(?:^|[\s;&|(`$\"'])(?:curl|wget)\s|\bhelm\s+plugin\s+install\s")
+PIPE_TO_INTERPRETER = re.compile(
+    r"\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:env\s+(?:[^\s=]+=\S*\s+)*)?"
+    r"(?:ba|z|da|k)?sh\b(?!\S)|\|\s*(?:sudo\s+)?(?:python3?|node|perl|ruby)\s*(?:-\s*)?(?:$|[;&|)])"
+    r"|(?:ba|z|da)?sh\s+(?:-c\s+)?[\"']?\$\(\s*(?:curl|wget)\s|(?:ba|z)?sh\s+<\(\s*(?:curl|wget)\s"
+)
+# Requests that send data or only read a status code download nothing to run.
+NOT_A_DOWNLOAD = re.compile(
+    r"\bcurl\b.*(?:-X\s*|--request(?:=|\s+))(?i:POST|PUT|PATCH|DELETE)\b"
+    r"|\bcurl\b.*\s(?:-o|--output)\s+/dev/null\b"
+    r"|\bcurl\b.*\s(?:-I|--head)\b"
+)
+# Commands that publish a `latest` tag rather than consume one.
+PUBLISHES_TAG = re.compile(
+    r"\bdocker\s+(?:image\s+)?push\b|\bimagetools\s+create\b|\bcrane\s+tag\b"
+    r"|\bbuild\b.*\s(?:--tag|-t)[\s=]\S*[:@]latest\b"
+)
+LOCAL_URL_PREFIXES = (
+    "http://localhost",
+    "http://127.0.0.1",
+    "https://localhost",
+    "https://127.0.0.1",
+)
+VERIFICATION_COMMANDS = (
+    "sha256sum -c",
+    "sha256sum --check",
+    "sha512sum -c",
+    "sha512sum --check",
+    "shasum -a 256 -c",
+    "shasum -a 512 -c",
+    "cosign verify",
+    "gpg --verify",
+    "minisign -Vm",
+    "gh attestation verify",
+    "slsa-verifier verify",
+)
+
+
+# =============================================================================
+# Container base images
+# =============================================================================
+
+
+def check_base_images(repo: Repository) -> list[Finding]:
+    """A `FROM` without a tag pulls `latest` (fails, as an explicit `:latest`
+    does); a tag without a digest can be moved to new content (warns)."""
+    findings = []
+    for path in sorted(p for p in repo.files if is_dockerfile(p)):
+        lines = fold_continuations(repo.text(path).splitlines())
+        texts = [text for _, text in lines]
+        args: dict[str, str] = {}
+        stages: set[str] = set()
+        for index, (number, line) in enumerate(lines):
+            stripped = line.strip()
+            arg = re.fullmatch(r"(?i)ARG\s+(\w+)=(\"[^\"]*\"|'[^']*'|\S+)", stripped)
+            if arg:
+                args[arg.group(1)] = arg.group(2).strip("\"'")
+                continue
+            match = FROM_LINE.match(stripped)
+            if not match:
+                continue
+            image, stage = match.group("image"), match.group("stage")
+            if stage:
+                stages.add(stage.lower())
+            resolved = expand_args(image, args)
+            if resolved is None or resolved.lower() in stages or resolved == "scratch":
+                continue
+            if "@sha256:" in resolved:
+                continue
+            reference = resolved.rsplit("/", 1)[-1]
+            if ":" not in reference:
+                if not has_marker(texts, index, LATEST_ALLOW_MARKER):
+                    findings.append(
+                        Finding(
+                            FAIL,
+                            path,
+                            f"Line {number}: `FROM {image}` has no tag, so it pulls `latest`.",
+                            "Pin a version tag and digest (`image:1.2.3@sha256:...`); Dependabot's "
+                            "`docker` ecosystem keeps both current.",
+                        )
+                    )
+                continue
+            findings.append(
+                Finding(
+                    WARN,
+                    path,
+                    f"Line {number}: `FROM {resolved}` is not pinned by digest, so the tag can be "
+                    "moved to different content.",
+                    "Append the digest (`image:tag@sha256:...`); Dependabot's `docker` ecosystem "
+                    "updates tag and digest together.",
+                )
+            )
+    return findings
+
+
+def expand_args(image: str, args: dict[str, str]) -> str | None:
+    """Substitute `ARG` defaults; None when a variable has no default."""
+    missing = False
+
+    def substitute(match: re.Match) -> str:
+        nonlocal missing
+        value = args.get(match.group(1) or match.group(2))
+        if value is None:
+            missing = True
+            return ""
+        return value
+
+    expanded = re.sub(r"\$\{(\w+)(?::?-[^}]*)?\}|\$(\w+)", substitute, image)
+    return None if missing else expanded
+
+
+FROM_LINE = re.compile(
+    r"(?i)FROM\s+(?:--\S+\s+)*(?P<image>\S+)(?:\s+AS\s+(?P<stage>\S+))?\s*$"
+)
+
+
+# =============================================================================
+# CI installs
+# =============================================================================
+
+
+def check_ci_installs(repo: Repository) -> list[Finding]:
+    """Installs in workflows, composite actions and Dockerfiles must honor the
+    lockfile."""
+    findings = []
+    for path in sorted(workflow_files(repo)):
+        try:
+            document = repo.yaml(path)
+        except ParseError:
+            continue
+        for script in run_scripts(document):
+            findings += install_findings(path, shell_commands(script), CI_INSTALL_RULES)
+    for path in sorted(p for p in repo.files if is_dockerfile(p)):
+        runs = [
+            line.strip()[4:]
+            for _, line in fold_continuations(repo.text(path).splitlines())
+            if re.match(r"(?i)\s*RUN\s", line)
+        ]
+        commands = [c for script in runs for c in shell_commands(script)]
+        findings += install_findings(path, commands, CI_INSTALL_RULES + DOCKER_INSTALL_RULES)
+    findings += check_release_age_exclusions(repo)
+    findings += check_js_lockfiles(repo)
+    return findings
+
+
+def install_findings(path: str, commands: list[str], rules: tuple) -> list[Finding]:
+    findings = []
+    for command in commands:
+        for pattern, level, message, fix in rules:
+            if pattern.search(command):
+                findings.append(Finding(level, path, f"`{shorten(command)}` {message}", fix))
+                break
+    return findings
+
+
+CI_INSTALL_RULES = (
+    (
+        re.compile(r"\bpnpm\s+(?:\S+\s+)*?(?:i|install)\b.*--(?:no-frozen-lockfile|frozen-lockfile=false)\b"),
+        FAIL,
+        "turns off pnpm's frozen lockfile, so CI may resolve versions the lockfile does not pin.",
+        "Drop the flag and commit the updated pnpm-lock.yaml.",
+    ),
+    (
+        re.compile(r"\byarn\s+(?:\S+\s+)*?install\b.*--no-immutable\b"),
+        FAIL,
+        "lets Yarn rewrite the lockfile, so CI may resolve versions it does not pin.",
+        "Drop the flag and commit the updated yarn.lock.",
+    ),
+    (
+        # A project install (no package arguments): `npm ci` installs exactly
+        # the lockfile and fails when it is stale.
+        re.compile(r"(?:^|\s)npm\s+(?:-\S+\s+)*(?:i|install)(?:\s+-\S+)*\s*$"),
+        WARN,
+        "may rewrite package-lock.json and resolve versions it does not pin.",
+        "Use `npm ci`.",
+    ),
+)
+
+
+DOCKER_INSTALL_RULES = (
+    (
+        # Docker builds do not set CI, so pnpm does not default to a frozen
+        # lockfile there.
+        re.compile(r"^(?!.*\bCI=)(?!.*--frozen-lockfile).*(?:^|\s)pnpm\s+(?:-\S+\s+)*(?:i|install)\b"),
+        WARN,
+        "runs without `--frozen-lockfile`; Docker builds do not set CI, so pnpm may "
+        "resolve versions the lockfile does not pin.",
+        "Add `--frozen-lockfile`.",
+    ),
+)
+
+
+def check_release_age_exclusions(repo: Repository) -> list[Finding]:
+    findings = []
+    for path in sorted(p for p in repo.files if name(p) == "pnpm-workspace.yaml"):
+        try:
+            settings = repo.yaml(path)
+        except ParseError:
+            continue  # reported by check_pnpm
+        excluded = settings.get("minimumReleaseAgeExclude") if isinstance(settings, dict) else None
+        if not isinstance(excluded, list):
+            continue
+        broad = [str(e) for e in excluded if not EXACT_VERSIONS.fullmatch(str(e).strip())]
+        if broad:
+            findings.append(
+                Finding(
+                    WARN,
+                    path,
+                    "`minimumReleaseAgeExclude` exempts every version of "
+                    f"{', '.join(f'`{e}`' for e in broad)}, including releases not yet published.",
+                    "List exact versions (`name@1.2.3`, or `name@1.2.3 || 1.2.4`) with a comment "
+                    "naming the advisory and the date to remove them.",
+                )
+            )
+    return findings
+
+
+# `name@1.2.3` or `name@1.2.3 || 1.3.0`, scoped names included.
+EXACT_VERSIONS = re.compile(
+    r"(?:@[\w.-]+/)?[\w.-]+@\d+\.\d+\.\d+[\w.+-]*(?:\s*\|\|\s*\d+\.\d+\.\d+[\w.+-]*)*"
+)
+
+
+def check_js_lockfiles(repo: Repository) -> list[Finding]:
+    lock_dirs = {parent(p) for p in repo.files if name(p) in NPM_LOCKFILES + BUN_LOCKFILES}
+    findings = []
+    for path in sorted(p for p in repo.files if name(p) == "package.json"):
+        directory = parent(path)
+        if under_any(directory, lock_dirs) or not has_js_dependencies(repo, path):
+            continue
+        findings.append(
+            Finding(
+                WARN,
+                path,
+                f"JavaScript project at {directory or '/'} has dependencies but no lockfile, "
+                "so every install resolves the newest matching versions.",
+                "Commit the package manager's lockfile (pnpm-lock.yaml with pnpm).",
+            )
+        )
+    return findings
 
 
 # =============================================================================

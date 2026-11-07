@@ -61,7 +61,11 @@ python3 /path/to/org-github/actions/cargo-release-age/check-cargo-release-age.py
   --base-ref origin/main --lockfile ai-labs/Cargo.lock
 ```
 
-Fetch the target branch first. Repeat `--lockfile` for each lockfile. Run the policy
+Fetch the target branch first. Repeat `--lockfile` for each lockfile, or pass
+`--all-lockfiles` to check every tracked `Cargo.lock` outside vendored and
+fixture directories. With `--all-lockfiles`, a lockfile the base lacks is new
+and every registry version in it is checked; the organization's supply-chain
+policy workflow runs it this way. Run the policy
 tests from this repository with:
 
 ```sh

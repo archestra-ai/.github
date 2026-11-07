@@ -25,23 +25,49 @@ def main() -> int:
     )
     parser.add_argument(
         "--lockfile",
-        required=True,
         action="append",
+        default=[],
         help="Repository-relative Cargo.lock path",
     )
+    parser.add_argument(
+        "--all-lockfiles",
+        action="store_true",
+        help=(
+            "Check every tracked Cargo.lock outside vendored and fixture directories. "
+            "A lockfile the base lacks is new: every registry version in it is checked."
+        ),
+    )
     args = parser.parse_args()
+    if not args.lockfile and not args.all_lockfiles:
+        parser.error("pass --lockfile at least once, or --all-lockfiles")
     try:
         root = Path(
             subprocess.check_output(
                 ["git", "rev-parse", "--show-toplevel"], text=True
             ).strip()
         )
+        lockfiles = args.lockfile
+        if args.all_lockfiles:
+            # The base must exist even when no lockfile is found in it.
+            subprocess.run(
+                ["git", "cat-file", "-e", f"{args.base_ref}^{{commit}}"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+            lockfiles = sorted(set(lockfiles) | set(tracked_lockfiles(root)))
+            if not lockfiles:
+                print("No tracked Cargo.lock; nothing to check.")
+                return 0
         now = datetime.now(UTC)
         failures = []
-        for lockfile in args.lockfile:
-            base = subprocess.check_output(
-                ["git", "show", f"{args.base_ref}:{lockfile}"], cwd=root, text=True
-            )
+        for lockfile in lockfiles:
+            if args.all_lockfiles and not exists_at(root, args.base_ref, lockfile):
+                base = EMPTY_LOCKFILE
+            else:
+                base = subprocess.check_output(
+                    ["git", "show", f"{args.base_ref}:{lockfile}"], cwd=root, text=True
+                )
             current = (root / lockfile).read_text()
             failures.extend(
                 f"{lockfile}: {failure}"
@@ -99,6 +125,23 @@ def check_versions(base: str, current: str, now: datetime) -> list[str]:
     return failures
 
 
+def tracked_lockfiles(root: Path) -> list[str]:
+    output = subprocess.check_output(["git", "ls-files", "-z"], cwd=root)
+    return [
+        path
+        for path in output.decode().split("\0")
+        if path.split("/")[-1] == "Cargo.lock"
+        and not IGNORED_DIRECTORIES.intersection(path.split("/")[:-1])
+    ]
+
+
+def exists_at(root: Path, ref: str, path: str) -> bool:
+    result = subprocess.run(
+        ["git", "cat-file", "-e", f"{ref}:{path}"], cwd=root, capture_output=True
+    )
+    return result.returncode == 0
+
+
 def registry_versions(lockfile: str) -> set[tuple[str, str, str]]:
     # Cargo records every resolved version, including transitive dependencies.
     return {
@@ -127,6 +170,18 @@ def publication_time(name: str, version: str) -> datetime:
 
 
 CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
+EMPTY_LOCKFILE = "version = 4\npackage = []\n"
+# Vendored code and test fixtures, as in the supply-chain policy checker.
+IGNORED_DIRECTORIES = {
+    "node_modules",
+    "vendor",
+    "third_party",
+    "third-party",
+    "testdata",
+    "fixtures",
+    "test-fixtures",
+    "__fixtures__",
+}
 
 # Trusted, exact-artifact exceptions for the emSign distrust security updates.
 # No consumer-supplied bypass. Each expires at the release's seven-day boundary;
