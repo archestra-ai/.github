@@ -24,8 +24,8 @@
 # job that runs here presents this file as its `job_workflow_ref`, so it no
 # longer matches trust that names the caller's workflow file.
 #
-# Keep the App's key in a deployment environment that only release branches
-# can deploy to, and name it in `environment`. A job that calls a reusable
+# Keep the App's key in an environment that only release branches can use,
+# and name it in `environment`. A job that calls a reusable
 # workflow cannot set `environment` itself, so the job here does. The caller
 # still passes the secrets by name: GitHub resolves them from that environment.
 #
@@ -137,7 +137,11 @@ jobs:
     name: Release Please
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: ${{ inputs.environment }}
+    # The environment only holds the App key; nothing is deployed, so no
+    # deployment record is created. An empty name runs outside any environment.
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: false
     permissions: {} # Every GitHub write uses the App token below.
     outputs:
       releases_created: ${{ steps.releases.outputs.releases_created || 'false' }}
