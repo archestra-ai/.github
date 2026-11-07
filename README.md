@@ -13,9 +13,18 @@ The workflow checks out:
 
 This keeps the scan policy consistent across repositories and avoids per-repository suppressions or drift.
 
+## TruffleHog secret scanning
+
+[`trufflehog.yml`](.github/workflows/trufflehog.yml) scans the commits a pull request or merge group adds for credentials, and fails when one is verified live with its provider. An organization ruleset ("Require workflows to pass before merging", managed in `archestra-ai/infra` under `github/org/`) requires it on every repository, pinned to a commit of this file.
+
+- It fetches only the new commits and their merge base with the base branch, not the whole history, and needs no secrets, so it runs on fork pull requests too.
+- Unverified matches are not reported, and a scan that errors fails rather than passes.
+- If it flags a credential, revoke it with the provider; removing it in a later commit does not help, since the commit stays fetchable on GitHub. A revoked credential no longer verifies, so a rerun passes.
+- To change it, merge here, then move the ruleset's pin in `archestra-ai/infra`.
+
 ## Supply-chain policy
 
-[`supply-chain-policy.yml`](.github/workflows/supply-chain-policy.yml) is enforced the same way: an organization ruleset requires it on every repository's pull requests and merge queue. It checks that Dependabot updates use a seven-day cooldown, that pnpm waits seven days for new releases and skips install scripts, and that Cargo lockfiles are committed and used. See [supply-chain-policy/README.md](supply-chain-policy/README.md) for the rules, starter configuration for new repositories, and how to fix each finding.
+[`supply-chain-policy.yml`](.github/workflows/supply-chain-policy.yml) is enforced the same way: an organization ruleset in `archestra-ai/infra` requires it on every repository's pull requests and merge queue, from the same pinned tag. It checks that Dependabot updates use a seven-day cooldown, that pnpm waits seven days for new releases and skips install scripts, and that Cargo lockfiles are committed and used. See [supply-chain-policy/README.md](supply-chain-policy/README.md) for the rules, starter configuration for new repositories, and how to fix each finding.
 
 ## Shared Actions
 
@@ -31,6 +40,7 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
 
 - The App token is scoped to the calling repository with `contents: write` and `pull-requests: write` only. The App must be installed on that repository.
 - Callers pass the App's ID and private key as the `APP_ID` and `APP_PRIVATE_KEY` secrets and can call it with `permissions: {}`.
+- Keep the key in a deployment environment that only release branches can deploy to, and name it in the `environment` input. The calling job cannot set `environment` on a reusable workflow, so this workflow's job does; the caller still passes the secrets by name (`APP_ID: ${{ secrets.APP_ID }}`), and GitHub resolves them from that environment.
 - The job creates releases for merged release PRs first, then creates or updates release PRs. `skip-github-release` and `skip-github-pull-request` turn either pass off, so a caller that needs its own steps in between calls the workflow twice.
 - Outputs mirror `googleapis/release-please-action` for the root package (`release_created`, `tag_name`, `version`, ...) and for PRs (`prs_created`, `pr`, `prs`). Per-path outputs come from the `releases` JSON, for example `fromJSON(needs.release-please.outputs.releases)['platform--version']`.
 - Keep cloud sign-in (for example Google Workload Identity) in the caller's jobs. A job inside this workflow presents `archestra-ai/.github/.github/workflows/release-please.yml` as its `job_workflow_ref`, not the caller's file.
