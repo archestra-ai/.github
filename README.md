@@ -13,6 +13,15 @@ The workflow checks out:
 
 This keeps the scan policy consistent across repositories and avoids per-repository suppressions or drift.
 
+## TruffleHog secret scanning
+
+[`trufflehog.yml`](.github/workflows/trufflehog.yml) scans the commits a pull request or merge group adds for credentials, and fails when one is verified live with its provider. An organization ruleset ("Require workflows to pass before merging", managed in `archestra-ai/infra` under `github/org/`) requires it on every repository, pinned to a commit of this file.
+
+- It fetches only the new commits and their merge base with the base branch, not the whole history, and needs no secrets, so it runs on fork pull requests too.
+- Unverified matches are not reported, and a scan that errors fails rather than passes.
+- If it flags a credential, revoke it with the provider; removing it in a later commit does not help, since the commit stays fetchable on GitHub. A revoked credential no longer verifies, so a rerun passes.
+- To change it, merge here, then move the ruleset's pin in `archestra-ai/infra`.
+
 ## Shared Actions
 
 - [CI authentication and deployment](actions/README.md): Google WIF, GitHub App

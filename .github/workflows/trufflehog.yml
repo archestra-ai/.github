@@ -1,0 +1,90 @@
+name: TruffleHog Secret Scanning
+
+on:
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: trufflehog-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  trufflehog:
+    name: TruffleHog
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # fetch the commits under scan from private repositories
+    steps:
+      # Fetches only the history the scan needs instead of the whole
+      # repository: the new commits, back to their merge base with the base
+      # branch, and none of them on the shallow boundary (git would show a
+      # boundary commit's diff as the entire tree).
+      - name: Fetch the new commits
+        id: fetch
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init --quiet commits
+          cd commits
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          # Authenticate through the environment, so the token reaches neither
+          # .git/config (mounted into the scanner) nor the process list.
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+
+          fetch() { git fetch --quiet --no-tags origin "$@" "$BASE" "$HEAD"; }
+          complete() {
+            merge_base=$(git merge-base "$BASE" "$HEAD") || return 1
+            [ -f .git/shallow ] || return 0
+            # The scanner finds the merge base again by walking back from
+            # the more recently committed end, so HEAD must be the newer.
+            [ "$(git log -1 --format=%ct "$HEAD")" -ge "$(git log -1 --format=%ct "$merge_base")" ] || return 1
+            ! grep -qxF -f .git/shallow <(git rev-list "$merge_base..$HEAD")
+          }
+
+          fetch --depth=50
+          for deepen in 100 400 1600; do
+            complete 2>/dev/null && break
+            fetch --deepen="$deepen"
+          done
+          if ! complete 2>/dev/null; then
+            [ -f .git/shallow ] && fetch --unshallow
+            complete || { echo "::error::$BASE and $HEAD share no history."; exit 1; }
+          fi
+
+          if [ "$merge_base" = "$HEAD" ]; then
+            echo "No new commits to scan."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "base=$merge_base" >> "$GITHUB_OUTPUT"
+          echo "Scanning $(git rev-list --count "$merge_base..$HEAD") commits since $merge_base."
+
+          # The scanner resolves both ends from a clone of this repository and
+          # reads its index (staged changes): an index matching HEAD stages
+          # nothing.
+          git update-ref refs/heads/scan-base "$merge_base"
+          git update-ref refs/heads/scan-head "$HEAD"
+          git symbolic-ref HEAD refs/heads/scan-head
+          git read-tree HEAD
+
+      - name: Scan the new commits
+        if: steps.fetch.outputs.skip != 'true'
+        uses: trufflesecurity/trufflehog@31ce31ee1abbcc7dc8eee5764c17121c3044c8b2 # v3.99.7
+        with:
+          path: commits
+          base: ${{ steps.fetch.outputs.base }}
+          head: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          # The action runs this scanner image; pin it by digest as well.
+          version: 3.99.7@sha256:0d003fc3abc4e1565eca8462b992001314de51451e96e3c44de80d116794d5d1
+          # The action adds --fail: exit 183 on a finding. Report only
+          # credentials the provider confirms are live, and fail rather than
+          # pass when part of the scan errors.
+          extra_args: --results=verified --fail-on-scan-errors
