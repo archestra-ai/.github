@@ -896,7 +896,7 @@ LATEST_REFERENCE = re.compile(r"[\w}\])\"'-][:@]latest\b")
 REMOTE_URL = re.compile(r"https?://[^\s\"')]+")
 DOWNLOADER = re.compile(r"(?:^|[\s;&|(`$\"'])(?:curl|wget)\s|\bhelm\s+plugin\s+install\s")
 PIPE_TO_INTERPRETER = re.compile(
-    r"\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:env\s+(?:\S+=\S*\s+)*)?"
+    r"\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:env\s+(?:[^\s=]+=\S*\s+)*)?"
     r"(?:ba|z|da|k)?sh\b(?!\S)|\|\s*(?:sudo\s+)?(?:python3?|node|perl|ruby)\s*(?:-\s*)?(?:$|[;&|)])"
     r"|(?:ba|z|da)?sh\s+(?:-c\s+)?[\"']?\$\(\s*(?:curl|wget)\s|(?:ba|z)?sh\s+<\(\s*(?:curl|wget)\s"
 )
@@ -1065,7 +1065,7 @@ CI_INSTALL_RULES = (
     (
         # A project install (no package arguments): `npm ci` installs exactly
         # the lockfile and fails when it is stale.
-        re.compile(r"(?:^|\s)npm\s+(?:--?\S+\s+)*(?:i|install)(?:\s+--?\S+)*\s*$"),
+        re.compile(r"(?:^|\s)npm\s+(?:-\S+\s+)*(?:i|install)(?:\s+-\S+)*\s*$"),
         WARN,
         "may rewrite package-lock.json and resolve versions it does not pin.",
         "Use `npm ci`.",
@@ -1077,7 +1077,7 @@ DOCKER_INSTALL_RULES = (
     (
         # Docker builds do not set CI, so pnpm does not default to a frozen
         # lockfile there.
-        re.compile(r"^(?!.*\bCI=)(?!.*--frozen-lockfile).*(?:^|\s)pnpm\s+(?:--?\S+\s+)*(?:i|install)\b"),
+        re.compile(r"^(?!.*\bCI=)(?!.*--frozen-lockfile).*(?:^|\s)pnpm\s+(?:-\S+\s+)*(?:i|install)\b"),
         WARN,
         "runs without `--frozen-lockfile`; Docker builds do not set CI, so pnpm may "
         "resolve versions the lockfile does not pin.",
