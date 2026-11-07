@@ -1,0 +1,39 @@
+name: Supply-Chain Policy
+
+on:
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: supply-chain-policy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  supply-chain-policy:
+    name: Supply-Chain Policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read # read the repository under check, including private ones
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: target
+          persist-credentials: false
+
+      # The checker comes from the same commit as this workflow file, so the
+      # ruleset's ref decides both. If GitHub ever reports a workflow ref
+      # outside this repository, fall back to main.
+      - name: Checkout org workflow repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: archestra-ai/.github
+          ref: ${{ startsWith(github.workflow_ref, 'archestra-ai/.github/') && github.workflow_sha || 'main' }}
+          path: .org-github
+          persist-credentials: false
+
+      - name: Check supply-chain policy
+        run: python3 .org-github/supply-chain-policy/check_supply_chain_policy.py target

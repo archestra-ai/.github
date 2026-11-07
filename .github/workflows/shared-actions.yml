@@ -28,6 +28,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Test release age policy
         run: python3 -m unittest discover -s actions/cargo-release-age -p 'test_*.py'
+      - name: Test supply-chain policy checker
+        run: python3 -m unittest discover -s supply-chain-policy -p 'test_*.py'
       - name: Test Vercel deployment arguments and failures
         run: python3 -m unittest discover -s actions/vercel-deploy -p 'test_*.py'
       - name: Use the review action's Node runtime

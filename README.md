@@ -22,6 +22,10 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
 - If it flags a credential, revoke it with the provider; removing it in a later commit does not help, since the commit stays fetchable on GitHub. A revoked credential no longer verifies, so a rerun passes.
 - To change it, merge here, then move the ruleset's pin in `archestra-ai/infra`.
 
+## Supply-chain policy
+
+[`supply-chain-policy.yml`](.github/workflows/supply-chain-policy.yml) is enforced the same way: an organization ruleset in `archestra-ai/infra` requires it on every repository's pull requests and merge queue, from the same pinned tag. It checks that Dependabot updates use a seven-day cooldown, that pnpm waits seven days for new releases and skips install scripts, and that Cargo lockfiles are committed and used. See [supply-chain-policy/README.md](supply-chain-policy/README.md) for the rules, starter configuration for new repositories, and how to fix each finding.
+
 ## Shared Actions
 
 - [CI authentication and deployment](actions/README.md): Google WIF, GitHub App
