@@ -47,6 +47,20 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
 
 Pin callers to a reviewed full commit SHA, as with the shared actions.
 
+## Release publisher
+
+[`release-publish.yml`](.github/workflows/release-publish.yml) is a reusable workflow that asks [release-publisher](https://github.com/archestra-ai/release-publisher) to publish a release run's attested staged images, charts and release assets, and waits for the publisher's run, a stable release's approval included. Callers wait here, so the 360-minute job limit is set once.
+
+- Attest in the caller's own job, before this one. An attestation names the workflow file that ran its step, and the publisher accepts only the project's release workflow.
+- Pass the staged digests as the `images` JSON. Charts and release assets come from artifacts of the calling run (`chart-artifact`, `asset-artifact`); `return-artifact` copies what the publisher returns (a Terraform provider's signed `release-assets`) into the calling run.
+- Keep the release App's key in a deployment environment that only release refs can use, and name it in `environment`, as with Release Please.
+- Steps after the publish (a GitHub release, notifications) stay in caller jobs that need this one.
+- When nobody approves a stable release in time, the job fails after 360 minutes while the publisher run keeps waiting. Retry in the calling run once an approver is around: **Re-run failed jobs** re-runs this wait without the attest job (the publisher accepts an attestation from an earlier attempt of the same run), and the new request asks for a new approval. The publisher is idempotent. archestra re-runs all jobs instead (see the publisher's README, "Retry a failed publish").
+
+The `release-images-publish` action does the request inside it; callers use this workflow.
+
+Pin callers to a reviewed full commit SHA, as with the shared actions.
+
 ## Archestra Runtime Reviews
 
 [archestra-ai/code-review-action](https://github.com/archestra-ai/code-review-action) reviews a pull request on an Archestra Agent Runtime and posts the review as the Archestra Lobster App, with inline findings. [`archestra-runtime-review.yml`](.github/workflows/archestra-runtime-review.yml) runs it on every pull request of every repository in the organization: an organization ruleset with "Require workflows to pass before merging" names this file on `main`, as the zizmor rollout does. No repository holds a workflow of its own, and a change merged here is live everywhere at once.

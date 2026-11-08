@@ -1,0 +1,215 @@
+# Asks archestra-ai/release-publisher to publish a release run's attested
+# staged images, charts and release assets, and waits for the publisher's run,
+# a stable release's approval included. Callers wait here, so the 360-minute
+# limit (the longest a GitHub-hosted job may run) is set once.
+#
+# - Attest in the caller's own job, before this one. An attestation names the
+#   workflow file that ran its step, and the publisher accepts only the
+#   project's release workflow, never this file.
+# - The request names this run attempt (`<run>-<attempt>`). The publisher
+#   accepts an attestation from this attempt or an earlier attempt of the same
+#   run, so "Re-run failed jobs" re-runs this wait without the attest job.
+# - Charts and release assets come from artifacts of the calling run; this job
+#   downloads them only to hash them. The publisher downloads and checks them
+#   itself.
+# - What the publisher returns (a Terraform provider's signed release assets)
+#   is copied into the calling run as an artifact of the same name, so later
+#   caller jobs need no publisher token.
+# - Steps after the publish (a GitHub release, notifications) stay in the
+#   caller's jobs that need this one.
+#
+# When nobody approves a stable release in time, this job fails after 360
+# minutes while the publisher run keeps waiting. Retry in the calling run once
+# an approver is around ("Re-run failed jobs"; archestra re-runs all jobs): the
+# new request asks for a new approval, and the publisher is idempotent.
+#
+# Keep the release App's key in an environment that only release refs can use,
+# and name it in `environment`. A job that calls a reusable workflow cannot set
+# `environment` itself, so the job here does.
+#
+# Usage:
+#
+#   jobs:
+#     publish:
+#       needs: attest
+#       permissions:
+#         actions: read # download this run's chart and asset artifacts
+#       uses: archestra-ai/.github/.github/workflows/release-publish.yml@<sha> # vX.Y.Z
+#       with:
+#         environment: releaser
+#         project: openappa
+#         version: ${{ needs.attest.outputs.version }}
+#         images: ${{ needs.attest.outputs.images }}
+#         latest: stable
+#         chart-artifact: release-charts
+#       secrets:
+#         APP_ID: ${{ secrets.APP_ID }}
+#         APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+name: Publish through release-publisher
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: >-
+          Deployment environment that holds APP_ID and APP_PRIVATE_KEY. Empty
+          runs the job outside any environment.
+        type: string
+        default: ""
+      project:
+        description: Project name, as projects/<project>.json in the publisher repository.
+        type: string
+        required: true
+      version:
+        description: Release version without a v prefix, or 0.0.0-smoke.<n> with smoke.
+        type: string
+        required: true
+      images:
+        description: 'JSON object {"<public name>": "sha256:<digest>"} of the staged, attested digests.'
+        type: string
+        required: true
+      latest:
+        description: Space-separated :latest channels to move (stable, newest). Empty moves none.
+        type: string
+        default: ""
+      chart-artifact:
+        description: Artifact of the calling run holding the chart archives (<chart>-<version>.tgz). Empty sends no charts.
+        type: string
+        default: ""
+      asset-artifact:
+        description: Artifact of the calling run holding the release asset files (a Terraform provider's goreleaser output). Empty sends no assets.
+        type: string
+        default: ""
+      return-artifact:
+        description: Artifact of the publisher run to copy into the calling run under the same name (release-assets for a Terraform provider). Empty copies nothing.
+        type: string
+        default: ""
+      smoke:
+        description: Send a dry run that writes scratch names only.
+        type: boolean
+        default: false
+      gate:
+        description: Ask for the stable release approval even where the publisher does not require it, such as a dry run that exercises it.
+        type: boolean
+        default: false
+      publisher-repository:
+        description: The publisher repository.
+        type: string
+        default: archestra-ai/release-publisher
+    secrets:
+      APP_ID:
+        description: ID of the project's release App, installed on the publisher repository.
+        required: true
+      APP_PRIVATE_KEY:
+        description: Private key of that GitHub App.
+        required: true
+    outputs:
+      run-url:
+        description: The publisher run.
+        value: ${{ jobs.publish.outputs.run-url }}
+      run-id:
+        description: The publisher run's ID.
+        value: ${{ jobs.publish.outputs.run-id }}
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish through release-publisher
+    runs-on: ubuntu-latest
+    # A stable release waits in the publisher for an approver who did not
+    # merge it; this job waits with it, up to the longest a GitHub-hosted job
+    # may run.
+    timeout-minutes: 360
+    # The environment only holds the App key; nothing is deployed, so no
+    # deployment record is created. An empty name runs outside any environment.
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: false
+    permissions:
+      actions: read # download this run's chart and asset artifacts
+    outputs:
+      run-url: ${{ steps.publish.outputs.run-url }}
+      run-id: ${{ steps.publish.outputs.run-id }}
+    steps:
+      - name: Download the charts
+        if: ${{ inputs.chart-artifact != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.chart-artifact }}
+          path: release-publish/charts
+
+      - name: Download the release assets
+        if: ${{ inputs.asset-artifact != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.asset-artifact }}
+          path: release-publish/assets
+
+      - name: Collect the request
+        id: request
+        env:
+          IMAGES: ${{ inputs.images }}
+          PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
+        run: |
+          set -euo pipefail
+          [[ "$PUBLISHER_REPOSITORY" =~ ^archestra-ai/[A-Za-z0-9._-]+$ ]] \
+            || { echo "::error::Unexpected publisher repository: $PUBLISHER_REPOSITORY"; exit 1; }
+          mkdir -p release-publish
+          printf '%s' "$IMAGES" > release-publish/images.json
+          {
+            echo "publisher=${PUBLISHER_REPOSITORY#*/}"
+            echo "charts<<EOF"
+            if [ -d release-publish/charts ]; then find release-publish/charts -maxdepth 1 -type f -name '*.tgz' | sort; fi
+            echo "EOF"
+            echo "assets<<EOF"
+            if [ -d release-publish/assets ]; then find release-publish/assets -maxdepth 1 -type f | sort; fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate a publisher token
+        id: publisher-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: archestra-ai
+          repositories: ${{ steps.request.outputs.publisher }}
+          # Send the repository_dispatch, watch the run and download what it returns.
+          permission-contents: write
+          permission-actions: read
+          skip-token-revoke: false
+
+      - name: Publish through release-publisher
+        id: publish
+        uses: archestra-ai/.github/actions/release-images-publish@db8b38c6b49f581689d15b9406d1fa58c7c15e5e # v1.19.0
+        with:
+          token: ${{ steps.publisher-token.outputs.token }}
+          project: ${{ inputs.project }}
+          version: ${{ inputs.version }}
+          images-file: release-publish/images.json
+          latest: ${{ inputs.latest }}
+          charts: ${{ steps.request.outputs.charts }}
+          assets: ${{ steps.request.outputs.assets }}
+          smoke: ${{ inputs.smoke && 'true' || 'false' }}
+          gate: ${{ inputs.gate && 'true' || 'false' }}
+          publisher-repository: ${{ inputs.publisher-repository }}
+
+      - name: Download what the publisher returns
+        if: ${{ inputs.return-artifact != '' }}
+        env:
+          GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
+          RUN_ID: ${{ steps.publish.outputs.run-id }}
+          PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
+          RETURN_ARTIFACT: ${{ inputs.return-artifact }}
+        run: gh run download "$RUN_ID" --repo "$PUBLISHER_REPOSITORY" --name "$RETURN_ARTIFACT" --dir release-publish/returned
+
+      - name: Keep what the publisher returns
+        if: ${{ inputs.return-artifact != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.return-artifact }}
+          path: release-publish/returned
+          if-no-files-found: error
+          # A retry in a later attempt of this run replaces the earlier copy.
+          overwrite: true
