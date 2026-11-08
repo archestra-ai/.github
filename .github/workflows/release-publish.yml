@@ -186,7 +186,7 @@ jobs:
 
       - name: Publish through release-publisher
         id: publish
-        uses: archestra-ai/.github/actions/release-images-publish@cbb0943b1353ae970eea3ee4b2170b0ed88379a8 # .github#70 (repin after merge)
+        uses: archestra-ai/.github/actions/release-images-publish@fab38ab095b5c8f5d0967ab46af9ffeada626733 # v1.20.1
         with:
           token: ${{ steps.publisher-token.outputs.token }}
           project: ${{ inputs.project }}
