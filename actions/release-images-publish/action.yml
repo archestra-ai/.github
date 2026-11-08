@@ -2,7 +2,7 @@ name: Publish through release-publisher
 description: Ask archestra-ai/release-publisher to publish attested staged images and charts to their public names, and wait for its run.
 inputs:
   token:
-    description: Token of the project's release App for the publisher repository, with Contents write (dispatch) and Actions read (watch).
+    description: Token of the project's release App for the publisher repository, with Contents write (dispatch) and Actions read (watch). Without `app-id` and `private-key`, the wait ends when this token expires.
     required: true
   project:
     description: Project name, as projects/<project>.json in the publisher repository.
@@ -28,6 +28,12 @@ inputs:
   gate:
     description: true asks for the release approval on a dry run, which otherwise needs none, to exercise it. Every other release, prereleases included, always needs it.
     default: "false"
+  app-id:
+    description: ID of the release App that `token` belongs to. With `private-key`, the wait mints a new token for the publisher repository before the current one expires (installation tokens last an hour; an approval can take longer).
+    default: ""
+  private-key:
+    description: Private key of that App.
+    default: ""
   publisher-repository:
     description: The publisher repository (archestra-ai/release-images until its rename).
     default: archestra-ai/release-publisher
@@ -55,5 +61,7 @@ runs:
         PUBLISH_SMOKE: ${{ inputs.smoke }}
         PUBLISH_GATE: ${{ inputs.gate }}
         PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
+        PUBLISH_APP_ID: ${{ inputs.app-id }}
+        PUBLISH_APP_PRIVATE_KEY: ${{ inputs.private-key }}
         PUBLISH_SCRIPT: ${{ github.action_path }}/publish.py
       run: python3 -I "$PUBLISH_SCRIPT"
