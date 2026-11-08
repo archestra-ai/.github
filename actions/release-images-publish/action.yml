@@ -1,5 +1,5 @@
-name: Publish through release-images
-description: Ask archestra-ai/release-images to publish attested staged images and charts to their public names, and wait for its run.
+name: Publish through release-publisher
+description: Ask archestra-ai/release-publisher to publish attested staged images and charts to their public names, and wait for its run.
 inputs:
   token:
     description: Token of the project's release App for the publisher repository, with Contents write (dispatch) and Actions read (watch).
@@ -19,6 +19,9 @@ inputs:
   charts:
     description: Newline-separated chart archives (<chart>-<version>.tgz) the publisher downloads from this run's artifacts.
     default: ""
+  assets:
+    description: Newline-separated release asset files (a Terraform provider's goreleaser output) the publisher downloads from this run's artifacts, verifies and signs.
+    default: ""
   smoke:
     description: true sends a dry run that writes scratch names only.
     default: "false"
@@ -26,16 +29,19 @@ inputs:
     description: true asks for the stable release approval even where the publisher does not require it, such as a dry run that exercises it. Stable releases always need it.
     default: "false"
   publisher-repository:
-    description: The publisher repository.
-    default: archestra-ai/release-images
+    description: The publisher repository (archestra-ai/release-images until its rename).
+    default: archestra-ai/release-publisher
 outputs:
   run-url:
     description: The publisher run.
     value: ${{ steps.publish.outputs.run-url }}
+  run-id:
+    description: The publisher run's ID, to download what it returns (a Terraform provider's signed release-assets artifact).
+    value: ${{ steps.publish.outputs.run-id }}
 runs:
   using: composite
   steps:
-    - name: Publish through release-images
+    - name: Publish through release-publisher
       id: publish
       shell: bash
       env:
@@ -45,6 +51,7 @@ runs:
         PUBLISH_IMAGES_FILE: ${{ inputs.images-file }}
         PUBLISH_LATEST: ${{ inputs.latest }}
         PUBLISH_CHARTS: ${{ inputs.charts }}
+        PUBLISH_ASSETS: ${{ inputs.assets }}
         PUBLISH_SMOKE: ${{ inputs.smoke }}
         PUBLISH_GATE: ${{ inputs.gate }}
         PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}

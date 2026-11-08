@@ -73,6 +73,7 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(gh.calls[-1][3], "7")
         self.assertIn("run-url=https://github.com/archestra-ai/release-images/actions/runs/7",
                       (self.directory / "output").read_text())
+        self.assertIn("run-id=7\n", (self.directory / "output").read_text())
 
     def test_charts_are_named_by_file_and_bound_to_this_run(self):
         chart = self.directory / "appa-runtime-1.2.3.tgz"
@@ -82,6 +83,16 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(gh.dispatched["client_payload"]["charts"], {
             "run_id": 90, "sha256": {"appa-runtime": hashlib.sha256(b"chart").hexdigest()}})
         self.assertEqual(gh.dispatched["client_payload"]["latest"], [])
+
+    def test_release_assets_are_named_by_file_and_bound_to_this_run(self):
+        files = [self.directory / "terraform-provider-x_1.2.3_SHA256SUMS",
+                 self.directory / "terraform-provider-x_1.2.3_linux_amd64.zip"]
+        for path in files:
+            path.write_bytes(path.name.encode())
+        gh = Gh()
+        self.publish(gh, PUBLISH_ASSETS="\n".join(map(str, files)) + "\n")
+        self.assertEqual(gh.dispatched["client_payload"]["assets"], {
+            "run_id": 90, "sha256": {path.name: hashlib.sha256(path.name.encode()).hexdigest() for path in files}})
 
     def test_smoke_requests(self):
         gh = Gh(title="Publish openappa 0.0.0-smoke.90 [90-2]")
@@ -116,6 +127,8 @@ class PublishTests(unittest.TestCase):
             {"PUBLISH_GATE": "yes"},
             {"PUBLISH_IMAGES_FILE": str(self.directory / "bad.json")},
             {"PUBLISH_CHARTS": str(chart)},
+            {"PUBLISH_ASSETS": str(self.directory / "missing.zip")},
+            {"PUBLISH_ASSETS": f"{chart}\n{chart}"},
             {"PUBLISHER_REPOSITORY": "archestra-ai/release-images; rm -rf /"},
         ):
             with self.subTest(overrides=overrides):
