@@ -1,6 +1,7 @@
 # Asks archestra-ai/release-publisher to publish a release run's attested
 # staged images, charts and release assets, and waits for the publisher's run,
-# a stable release's approval included. Callers wait here, so the 360-minute
+# the release's approval included (every release, prereleases too; not dry
+# runs). Callers wait here, so the 360-minute
 # limit (the longest a GitHub-hosted job may run) is set once.
 #
 # - Attest in the caller's own job, before this one. An attestation names the
@@ -18,7 +19,7 @@
 # - Steps after the publish (a GitHub release, notifications) stay in the
 #   caller's jobs that need this one.
 #
-# When nobody approves a stable release in time, this job fails after 360
+# When nobody approves a release in time, this job fails after 360
 # minutes while the publisher run keeps waiting. Retry in the calling run once
 # an approver is around ("Re-run failed jobs"; archestra re-runs all jobs): the
 # new request asks for a new approval, and the publisher is idempotent.
@@ -89,7 +90,7 @@ on:
         type: boolean
         default: false
       gate:
-        description: Ask for the stable release approval even where the publisher does not require it, such as a dry run that exercises it.
+        description: Ask for the release approval on a dry run, which otherwise needs none, to exercise it. Every other release always needs it.
         type: boolean
         default: false
       publisher-repository:
@@ -117,8 +118,8 @@ jobs:
   publish:
     name: Publish through release-publisher
     runs-on: ubuntu-latest
-    # A stable release waits in the publisher for an approver who did not
-    # merge it; this job waits with it, up to the longest a GitHub-hosted job
+    # A release (not a dry run) waits in the publisher for an approver who
+    # did not merge it; this job waits with it, up to the longest a GitHub-hosted job
     # may run.
     timeout-minutes: 360
     # The environment only holds the App key; nothing is deployed, so no
