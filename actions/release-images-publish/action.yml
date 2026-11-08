@@ -28,6 +28,9 @@ inputs:
   gate:
     description: true asks for the stable release approval even where the publisher does not require it, such as a dry run that exercises it. Stable releases always need it.
     default: "false"
+  wait:
+    description: true watches the publisher run and fails when it fails. false returns once the run has started (outputs run-id and run-url); the caller then gates what follows on the run's outcome, without holding a runner.
+    default: "true"
   publisher-repository:
     description: The publisher repository (archestra-ai/release-images until its rename).
     default: archestra-ai/release-publisher
@@ -54,6 +57,7 @@ runs:
         PUBLISH_ASSETS: ${{ inputs.assets }}
         PUBLISH_SMOKE: ${{ inputs.smoke }}
         PUBLISH_GATE: ${{ inputs.gate }}
+        PUBLISH_WAIT: ${{ inputs.wait }}
         PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
         PUBLISH_SCRIPT: ${{ github.action_path }}/publish.py
       run: python3 -I "$PUBLISH_SCRIPT"

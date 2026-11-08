@@ -94,6 +94,14 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(gh.dispatched["client_payload"]["assets"], {
             "run_id": 90, "sha256": {path.name: hashlib.sha256(path.name.encode()).hexdigest() for path in files}})
 
+    def test_without_waiting_it_returns_once_the_run_has_started(self):
+        gh = Gh()
+        self.publish(gh, PUBLISH_WAIT="false")
+        self.assertNotIn(["run", "watch"], [call[1:3] for call in gh.calls])
+        self.assertIn("run-id=7\n", (self.directory / "output").read_text())
+        # A failed publisher run is the caller's to gate on, not this step's.
+        self.publish(Gh(watch_status=1), PUBLISH_WAIT="false")
+
     def test_smoke_requests(self):
         gh = Gh(title="Publish openappa 0.0.0-smoke.90 [90-2]")
         self.publish(gh, PUBLISH_VERSION="0.0.0-smoke.90", PUBLISH_SMOKE="true", PUBLISH_LATEST="")
@@ -125,6 +133,7 @@ class PublishTests(unittest.TestCase):
             {"PUBLISH_LATEST": "always"},
             {"PUBLISH_SMOKE": "yes"},
             {"PUBLISH_GATE": "yes"},
+            {"PUBLISH_WAIT": "no"},
             {"PUBLISH_IMAGES_FILE": str(self.directory / "bad.json")},
             {"PUBLISH_CHARTS": str(chart)},
             {"PUBLISH_ASSETS": str(self.directory / "missing.zip")},

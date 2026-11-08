@@ -26,6 +26,9 @@ FIND_INTERVAL = 6
 
 
 def main(environment):
+    wait = environment.get("PUBLISH_WAIT", "true")
+    if wait not in ("true", "false"):
+        raise ValueError("wait must be true or false")
     request = build_request(environment)
     repository = environment["PUBLISHER_REPOSITORY"]
     if not REPOSITORY.fullmatch(repository):
@@ -39,6 +42,8 @@ def main(environment):
     if output:
         with open(output, "a") as handle:
             handle.write(f"run-url={url}\nrun-id={run_id}\n")
+    if wait == "false":
+        return
     # Exits non-zero, and so fails this step, when the publisher fails.
     gh("run", "watch", str(run_id), "--repo", repository, "--exit-status", "--interval", "20", capture=False)
 
