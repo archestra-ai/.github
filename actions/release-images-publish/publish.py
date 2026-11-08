@@ -1,19 +1,31 @@
 #!/usr/bin/env python3
 """Send a release-publisher request for this run and wait for its publisher run.
 
-The request ID is <run id>-<run attempt>. The publisher accepts only
-attestations made in that run attempt and charts from that run's artifacts,
-and puts "[<request id>]" at the end of its run name, which is how this
-script finds the run: the dispatch API returns no run ID.
+The request ID is <run id>-<run attempt>. The publisher accepts attestations
+made in that run (this attempt or an earlier one) and charts from that run's
+artifacts, and puts "[<request id>]" at the end of its run name, which is how
+this script finds the run: the dispatch API returns no run ID.
+
+A release can wait hours for its approval, and an App installation token
+lasts one hour. Given the App's ID and private key (PUBLISH_APP_ID,
+PUBLISH_APP_PRIVATE_KEY), the wait mints a new token, for the publisher
+repository only, before the current one is 45 minutes old and after a failed
+poll. Without them it polls with GH_TOKEN, so the wait ends when that token
+expires. A failed poll (an expired token, a GitHub 5xx) is retried; only
+MAX_POLL_FAILURES in a row fail the step.
 """
 
 import hashlib
 import json
 import os
 import re
+import base64
 import subprocess
 import sys
+import tempfile
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 PROJECT = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -23,6 +35,11 @@ REPOSITORY = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
 CHANNELS = ("stable", "newest")
 FIND_ATTEMPTS = 40
 FIND_INTERVAL = 6
+POLL_INTERVAL = 30
+MAX_POLL_FAILURES = 10
+# Installation tokens last 60 minutes; replace one well before that.
+TOKEN_REFRESH_AFTER = 45 * 60
+GITHUB_API = "https://api.github.com"
 
 
 def main(environment):
@@ -39,8 +56,85 @@ def main(environment):
     if output:
         with open(output, "a") as handle:
             handle.write(f"run-url={url}\nrun-id={run_id}\n")
-    # Exits non-zero, and so fails this step, when the publisher fails.
-    gh("run", "watch", str(run_id), "--repo", repository, "--exit-status", "--interval", "20", capture=False)
+    tokens = Tokens(environment, repository)
+    try:
+        wait(repository, run_id, tokens)
+    finally:
+        tokens.revoke()
+
+
+def wait(repository, run_id, tokens):
+    """Poll the publisher run until it completes; fail unless it succeeded."""
+    failures = 0
+    while True:
+        try:
+            run = json.loads(gh("api", f"repos/{repository}/actions/runs/{run_id}", token=tokens.current()))
+            failures = 0
+        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, urllib.error.URLError) as error:
+            failures += 1
+            print(f"Polling the publisher run failed ({failures}/{MAX_POLL_FAILURES}): {error}")
+            if failures >= MAX_POLL_FAILURES:
+                raise ValueError(f"Could not read publisher run {run_id} {failures} times in a row") from error
+            tokens.expire()
+            time.sleep(POLL_INTERVAL)
+            continue
+        if run.get("status") == "completed":
+            if run.get("conclusion") != "success":
+                raise ValueError(f"The publisher run concluded {run.get('conclusion')}")
+            print("The publisher run succeeded")
+            return
+        time.sleep(POLL_INTERVAL)
+
+
+class Tokens:
+    """The token for the publisher repository: GH_TOKEN at first, then, when
+    the App's key is given, a new installation token before the current one
+    is TOKEN_REFRESH_AFTER old, or after a failed poll."""
+
+    def __init__(self, environment, repository):
+        self.token = environment["GH_TOKEN"]
+        self.app_id = environment.get("PUBLISH_APP_ID", "")
+        self.private_key = environment.get("PUBLISH_APP_PRIVATE_KEY", "").replace("\\n", "\n")
+        self.owner, self.name = repository.split("/")
+        self.minted_at = time.time()
+        self.minted = []
+
+    def current(self):
+        if self.app_id and self.private_key and time.time() - self.minted_at >= TOKEN_REFRESH_AFTER:
+            self.refresh()
+        return self.token
+
+    def expire(self):
+        self.minted_at = 0
+
+    def refresh(self):
+        jwt = self.jwt()
+        installation = api("GET", f"/repos/{self.owner}/{self.name}/installation", f"Bearer {jwt}")
+        token = api("POST", f"/app/installations/{installation['id']}/access_tokens", f"Bearer {jwt}",
+                    {"repositories": [self.name], "permissions": {"contents": "write", "actions": "read"}})["token"]
+        print(f"::add-mask::{token}")
+        self.token, self.minted_at = token, time.time()
+        self.minted.append(token)
+        print("Minted a new publisher token")
+
+    def revoke(self):
+        for token in self.minted:
+            try:
+                api("DELETE", "/installation/token", f"token {token}")
+            except (OSError, ValueError) as error:
+                print(f"Could not revoke a publisher token: {error}")
+
+    def jwt(self):
+        now = int(time.time())
+        header = encode(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+        claims = encode(json.dumps({"iat": now - 60, "exp": now + 540, "iss": self.app_id}).encode())
+        with tempfile.NamedTemporaryFile("w", dir=os.environ.get("RUNNER_TEMP")) as key:
+            os.chmod(key.name, 0o600)
+            key.write(self.private_key)
+            key.flush()
+            signature = subprocess.run(["openssl", "dgst", "-sha256", "-sign", key.name],
+                                       input=f"{header}.{claims}".encode(), capture_output=True, check=True).stdout
+        return f"{header}.{claims}.{encode(signature)}"
 
 
 def build_request(environment):
@@ -106,10 +200,25 @@ def find_run(repository, request_id):
     raise ValueError("The publisher did not start")
 
 
-def gh(*args, stdin=None, capture=True):
+def gh(*args, stdin=None, token=None):
+    environment = None if token is None else {**os.environ, "GH_TOKEN": token}
     result = subprocess.run(["gh", *args], input=stdin, text=True, check=True,
-                            stdout=subprocess.PIPE if capture else None)
+                            stdout=subprocess.PIPE, env=environment)
     return result.stdout
+
+
+def api(method, path, authorization, body=None):
+    request = urllib.request.Request(
+        GITHUB_API + path, method=method, data=None if body is None else json.dumps(body).encode(),
+        headers={"Authorization": authorization, "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        content = response.read()
+    return json.loads(content) if content else {}
+
+
+def encode(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
 if __name__ == "__main__":
