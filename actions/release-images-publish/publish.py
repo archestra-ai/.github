@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send a release-images request for this run and wait for its publisher run.
+"""Send a release-publisher request for this run and wait for its publisher run.
 
 The request ID is <run id>-<run attempt>. The publisher accepts only
 attestations made in that run attempt and charts from that run's artifacts,
@@ -103,7 +103,7 @@ def find_run(repository, request_id):
                 return run["id"]
         if attempt + 1 < FIND_ATTEMPTS:
             time.sleep(FIND_INTERVAL)
-    raise ValueError("The release-images publisher did not start")
+    raise ValueError("The publisher did not start")
 
 
 def gh(*args, stdin=None, capture=True):
@@ -116,4 +116,4 @@ if __name__ == "__main__":
     try:
         main(os.environ)
     except (KeyError, ValueError, json.JSONDecodeError, OSError, subprocess.CalledProcessError) as error:
-        sys.exit(f"::error::release-images publication failed: {error}")
+        sys.exit(f"::error::publication failed: {error}")

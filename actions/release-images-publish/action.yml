@@ -1,5 +1,5 @@
-name: Publish through release-images
-description: Ask archestra-ai/release-images to publish attested staged images and charts to their public names, and wait for its run.
+name: Publish through release-publisher
+description: Ask archestra-ai/release-publisher to publish attested staged images and charts to their public names, and wait for its run.
 inputs:
   token:
     description: Token of the project's release App for the publisher repository, with Contents write (dispatch) and Actions read (watch).
@@ -29,8 +29,8 @@ inputs:
     description: true asks for the stable release approval even where the publisher does not require it, such as a dry run that exercises it. Stable releases always need it.
     default: "false"
   publisher-repository:
-    description: The publisher repository.
-    default: archestra-ai/release-images
+    description: The publisher repository (archestra-ai/release-images until its rename).
+    default: archestra-ai/release-publisher
 outputs:
   run-url:
     description: The publisher run.
@@ -41,7 +41,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Publish through release-images
+    - name: Publish through release-publisher
       id: publish
       shell: bash
       env:
