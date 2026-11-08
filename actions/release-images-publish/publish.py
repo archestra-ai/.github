@@ -38,7 +38,7 @@ def main(environment):
     output = environment.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a") as handle:
-            handle.write(f"run-url={url}\n")
+            handle.write(f"run-url={url}\nrun-id={run_id}\n")
     # Exits non-zero, and so fails this step, when the publisher fails.
     gh("run", "watch", str(run_id), "--repo", repository, "--exit-status", "--interval", "20", capture=False)
 
@@ -78,6 +78,16 @@ def build_request(environment):
         charts[path.name.removesuffix(suffix)] = hashlib.sha256(path.read_bytes()).hexdigest()
     if charts:
         request["charts"] = {"run_id": int(run_id), "sha256": charts}
+    assets = {}
+    for line in environment.get("PUBLISH_ASSETS", "").splitlines():
+        if not line.strip():
+            continue
+        path = Path(line.strip())
+        if not path.is_file() or path.name in assets:
+            raise ValueError(f"{path} is not a release asset file, or is listed twice")
+        assets[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    if assets:
+        request["assets"] = {"run_id": int(run_id), "sha256": assets}
     if smoke == "true":
         request["smoke"] = True
     if gate == "true":

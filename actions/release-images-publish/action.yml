@@ -19,6 +19,9 @@ inputs:
   charts:
     description: Newline-separated chart archives (<chart>-<version>.tgz) the publisher downloads from this run's artifacts.
     default: ""
+  assets:
+    description: Newline-separated release asset files (a Terraform provider's goreleaser output) the publisher downloads from this run's artifacts, verifies and signs.
+    default: ""
   smoke:
     description: true sends a dry run that writes scratch names only.
     default: "false"
@@ -32,6 +35,9 @@ outputs:
   run-url:
     description: The publisher run.
     value: ${{ steps.publish.outputs.run-url }}
+  run-id:
+    description: The publisher run's ID, to download what it returns (a Terraform provider's signed release-assets artifact).
+    value: ${{ steps.publish.outputs.run-id }}
 runs:
   using: composite
   steps:
@@ -45,6 +51,7 @@ runs:
         PUBLISH_IMAGES_FILE: ${{ inputs.images-file }}
         PUBLISH_LATEST: ${{ inputs.latest }}
         PUBLISH_CHARTS: ${{ inputs.charts }}
+        PUBLISH_ASSETS: ${{ inputs.assets }}
         PUBLISH_SMOKE: ${{ inputs.smoke }}
         PUBLISH_GATE: ${{ inputs.gate }}
         PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
