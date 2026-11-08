@@ -26,7 +26,7 @@ inputs:
     description: true sends a dry run that writes scratch names only.
     default: "false"
   gate:
-    description: true asks for the stable release approval even where the publisher does not require it, such as a dry run that exercises it. Stable releases always need it.
+    description: true asks for the release approval on a dry run, which otherwise needs none, to exercise it. Every other release, prereleases included, always needs it.
     default: "false"
   publisher-repository:
     description: The publisher repository (archestra-ai/release-images until its rename).
