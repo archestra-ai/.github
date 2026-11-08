@@ -87,6 +87,13 @@ class PublishTests(unittest.TestCase):
         gh = Gh(title="Publish openappa 0.0.0-smoke.90 [90-2]")
         self.publish(gh, PUBLISH_VERSION="0.0.0-smoke.90", PUBLISH_SMOKE="true", PUBLISH_LATEST="")
         self.assertIs(gh.dispatched["client_payload"]["smoke"], True)
+        self.assertNotIn("gate", gh.dispatched["client_payload"])
+
+    def test_a_dry_run_can_ask_for_the_stable_approval(self):
+        gh = Gh(title="Publish openappa 0.0.0-smoke.90 [90-2]")
+        self.publish(gh, PUBLISH_VERSION="0.0.0-smoke.90", PUBLISH_SMOKE="true", PUBLISH_LATEST="",
+                     PUBLISH_GATE="true")
+        self.assertIs(gh.dispatched["client_payload"]["gate"], True)
 
     def test_a_failed_publisher_run_fails_the_step(self):
         with self.assertRaises(subprocess.CalledProcessError):
@@ -106,6 +113,7 @@ class PublishTests(unittest.TestCase):
             {"PUBLISH_LATEST": "stable stable"},
             {"PUBLISH_LATEST": "always"},
             {"PUBLISH_SMOKE": "yes"},
+            {"PUBLISH_GATE": "yes"},
             {"PUBLISH_IMAGES_FILE": str(self.directory / "bad.json")},
             {"PUBLISH_CHARTS": str(chart)},
             {"PUBLISHER_REPOSITORY": "archestra-ai/release-images; rm -rf /"},

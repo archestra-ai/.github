@@ -53,6 +53,9 @@ def build_request(environment):
     smoke = environment.get("PUBLISH_SMOKE", "false")
     if smoke not in ("true", "false"):
         raise ValueError("smoke must be true or false")
+    gate = environment.get("PUBLISH_GATE", "false")
+    if gate not in ("true", "false"):
+        raise ValueError("gate must be true or false")
     latest = environment.get("PUBLISH_LATEST", "").split()
     if len(set(latest)) != len(latest) or not all(channel in CHANNELS for channel in latest):
         raise ValueError(f"latest must list channels from {CHANNELS}")
@@ -77,6 +80,8 @@ def build_request(environment):
         request["charts"] = {"run_id": int(run_id), "sha256": charts}
     if smoke == "true":
         request["smoke"] = True
+    if gate == "true":
+        request["gate"] = True
     return request
 
 
