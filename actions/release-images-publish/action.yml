@@ -22,6 +22,9 @@ inputs:
   smoke:
     description: true sends a dry run that writes scratch names only.
     default: "false"
+  gate:
+    description: true asks for the stable release approval even where the publisher does not require it, such as a dry run that exercises it. Stable releases always need it.
+    default: "false"
   publisher-repository:
     description: The publisher repository.
     default: archestra-ai/release-images
@@ -43,6 +46,7 @@ runs:
         PUBLISH_LATEST: ${{ inputs.latest }}
         PUBLISH_CHARTS: ${{ inputs.charts }}
         PUBLISH_SMOKE: ${{ inputs.smoke }}
+        PUBLISH_GATE: ${{ inputs.gate }}
         PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
         PUBLISH_SCRIPT: ${{ github.action_path }}/publish.py
       run: python3 -I "$PUBLISH_SCRIPT"
