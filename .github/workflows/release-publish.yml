@@ -24,6 +24,9 @@
 # an approver is around ("Re-run failed jobs"; archestra re-runs all jobs): the
 # new request asks for a new approval, and the publisher is idempotent.
 #
+# The wait outlives the one-hour App installation token: the action mints a
+# new one, for the publisher repository only, every 45 minutes.
+#
 # Keep the release App's key in an environment that only release refs can use,
 # and name it in `environment`. A job that calls a reusable workflow cannot set
 # `environment` itself, so the job here does.
@@ -183,7 +186,7 @@ jobs:
 
       - name: Publish through release-publisher
         id: publish
-        uses: archestra-ai/.github/actions/release-images-publish@db8b38c6b49f581689d15b9406d1fa58c7c15e5e # v1.19.0
+        uses: archestra-ai/.github/actions/release-images-publish@fab38ab095b5c8f5d0967ab46af9ffeada626733 # v1.20.1
         with:
           token: ${{ steps.publisher-token.outputs.token }}
           project: ${{ inputs.project }}
@@ -195,11 +198,28 @@ jobs:
           smoke: ${{ inputs.smoke && 'true' || 'false' }}
           gate: ${{ inputs.gate && 'true' || 'false' }}
           publisher-repository: ${{ inputs.publisher-repository }}
+          # Mint a new token before each one expires: an approval can take
+          # longer than the hour an installation token lasts.
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # The first token may have expired during the wait.
+      - name: Generate a token for what the publisher returns
+        id: return-token
+        if: ${{ inputs.return-artifact != '' }}
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: archestra-ai
+          repositories: ${{ steps.request.outputs.publisher }}
+          permission-actions: read
+          skip-token-revoke: false
 
       - name: Download what the publisher returns
         if: ${{ inputs.return-artifact != '' }}
         env:
-          GH_TOKEN: ${{ steps.publisher-token.outputs.token }}
+          GH_TOKEN: ${{ steps.return-token.outputs.token }}
           RUN_ID: ${{ steps.publish.outputs.run-id }}
           PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
           RETURN_ARTIFACT: ${{ inputs.return-artifact }}
