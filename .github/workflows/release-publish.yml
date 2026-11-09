@@ -19,7 +19,16 @@
 # - Steps after the publish (a GitHub release, notifications) stay in the
 #   caller's jobs that need this one.
 #
-# When nobody approves a release in time, this job fails after 360
+# `wait: false` hands the request off instead: this job ends once the
+# publisher run exists (minutes, not hours) and keeps the request as the
+# artifact `release-request-<attempt>` (35 days). The release then waits for
+# its approval in the publisher, up to GitHub's 30-day limit for a job waiting
+# on a review, and the caller finishes it in a separate workflow (started by
+# Release Gate when the publisher run succeeds, and by a schedule) whose job
+# runs the release-publish-verify action before it writes anything. A
+# hand-off cannot return an artifact (`return-artifact`).
+#
+# When waiting, and nobody approves a release in time, this job fails after 360
 # minutes while the publisher run keeps waiting. Retry in the calling run once
 # an approver is around ("Re-run failed jobs"; archestra re-runs all jobs): the
 # new request asks for a new approval, and the publisher is idempotent.
@@ -100,6 +109,13 @@ on:
         description: The publisher repository.
         type: string
         default: archestra-ai/release-publisher
+      wait:
+        description: >-
+          Wait for the publisher run (approval included), up to 360 minutes.
+          false hands the request off; finish the release in a workflow that
+          runs release-publish-verify.
+        type: boolean
+        default: true
     secrets:
       APP_ID:
         description: ID of the project's release App, installed on the publisher repository.
@@ -122,9 +138,9 @@ jobs:
     name: Publish through release-publisher
     runs-on: ubuntu-latest
     # A release (not a dry run) waits in the publisher for an approver who
-    # did not merge it; this job waits with it, up to the longest a GitHub-hosted job
-    # may run.
-    timeout-minutes: 360
+    # did not merge it; a waiting job waits with it, up to the longest a
+    # GitHub-hosted job may run. A hand-off only sends the request.
+    timeout-minutes: ${{ inputs.wait && 360 || 15 }}
     # The environment only holds the App key; nothing is deployed, so no
     # deployment record is created. An empty name runs outside any environment.
     environment:
@@ -155,8 +171,12 @@ jobs:
         env:
           IMAGES: ${{ inputs.images }}
           PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
+          WAIT: ${{ inputs.wait }}
+          RETURN_ARTIFACT: ${{ inputs.return-artifact }}
         run: |
           set -euo pipefail
+          [ "$WAIT" = true ] || [ -z "$RETURN_ARTIFACT" ] \
+            || { echo "::error::A hand-off (wait: false) cannot return an artifact"; exit 1; }
           [[ "$PUBLISHER_REPOSITORY" =~ ^archestra-ai/[A-Za-z0-9._-]+$ ]] \
             || { echo "::error::Unexpected publisher repository: $PUBLISHER_REPOSITORY"; exit 1; }
           mkdir -p release-publish
@@ -186,7 +206,7 @@ jobs:
 
       - name: Publish through release-publisher
         id: publish
-        uses: archestra-ai/.github/actions/release-images-publish@fab38ab095b5c8f5d0967ab46af9ffeada626733 # v1.20.1
+        uses: archestra-ai/.github/actions/release-images-publish@41f3faa2a88820fbf4201d86c31f78a12532bb90 # v1.22.0
         with:
           token: ${{ steps.publisher-token.outputs.token }}
           project: ${{ inputs.project }}
@@ -198,10 +218,22 @@ jobs:
           smoke: ${{ inputs.smoke && 'true' || 'false' }}
           gate: ${{ inputs.gate && 'true' || 'false' }}
           publisher-repository: ${{ inputs.publisher-repository }}
+          wait: ${{ inputs.wait && 'true' || 'false' }}
+          request-file: release-publish/request.json
           # Mint a new token before each one expires: an approval can take
           # longer than the hour an installation token lasts.
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # What the caller's finishing workflow checks the publication against.
+      # Kept longer than a request can wait for its approval (30 days).
+      - name: Keep the request
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-request-${{ github.run_attempt }}
+          path: release-publish/request.json
+          if-no-files-found: error
+          retention-days: 35
 
       # The first token may have expired during the wait.
       - name: Generate a token for what the publisher returns
