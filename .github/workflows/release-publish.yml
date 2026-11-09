@@ -206,7 +206,7 @@ jobs:
 
       - name: Publish through release-publisher
         id: publish
-        uses: archestra-ai/.github/actions/release-images-publish@c04e990eb4f791dfa68a1e476421559141574cb9 # #72 head; repin to its release tag before merging
+        uses: archestra-ai/.github/actions/release-images-publish@41f3faa2a88820fbf4201d86c31f78a12532bb90 # v1.22.0
         with:
           token: ${{ steps.publisher-token.outputs.token }}
           project: ${{ inputs.project }}
