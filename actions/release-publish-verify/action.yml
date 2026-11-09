@@ -1,0 +1,55 @@
+name: Verify a release-publisher publication
+description: Before finishing a handed-off release, check its publisher run succeeded and every public name holds the attested digest.
+inputs:
+  token:
+    description: Token with Actions read on the publisher repository (the project's release App), to find the publisher run.
+    required: true
+  attestation-token:
+    description: Token that can read the signer repository's attestations (the caller's GITHUB_TOKEN with contents read and attestations read).
+    required: true
+  request-file:
+    description: The request the release run sent (release-publish.yml keeps it as the artifact release-request-<attempt>).
+    required: true
+  requester:
+    description: The project's release App bot login, which must have dispatched the request (for example archestra-releaser[bot]).
+    required: true
+  signer-repository:
+    description: The source repository that attested the digests (owner/name).
+    required: true
+  signer-workflow:
+    description: <owner>/<repo>/.github/workflows/<file> that signed every attestation (the project's signer_workflow).
+    required: true
+  image-tag:
+    description: The project's image tag, {version} or v{version}.
+    default: "{version}"
+  chart-repositories:
+    description: Newline-separated `<chart> oci://<repository>` lines, one per chart in the request.
+    default: ""
+  publisher-repository:
+    description: The publisher repository.
+    default: archestra-ai/release-publisher
+outputs:
+  run-url:
+    description: The publisher run that published the request.
+    value: ${{ steps.verify.outputs.run-url }}
+  version:
+    description: The verified version.
+    value: ${{ steps.verify.outputs.version }}
+runs:
+  using: composite
+  steps:
+    - name: Verify the publication
+      id: verify
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        VERIFY_ATTESTATION_TOKEN: ${{ inputs.attestation-token }}
+        VERIFY_REQUEST_FILE: ${{ inputs.request-file }}
+        VERIFY_REQUESTER: ${{ inputs.requester }}
+        VERIFY_SIGNER_REPOSITORY: ${{ inputs.signer-repository }}
+        VERIFY_SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
+        VERIFY_IMAGE_TAG: ${{ inputs.image-tag }}
+        VERIFY_CHART_REPOSITORIES: ${{ inputs.chart-repositories }}
+        VERIFY_PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
+        VERIFY_SCRIPT: ${{ github.action_path }}/verify.py
+      run: python3 -I "$VERIFY_SCRIPT"

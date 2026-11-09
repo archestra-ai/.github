@@ -37,6 +37,12 @@ inputs:
   publisher-repository:
     description: The publisher repository (archestra-ai/release-images until its rename).
     default: archestra-ai/release-publisher
+  wait:
+    description: true waits for the publisher run (approval included) and fails when it fails. false hands the request off and ends once the publisher run exists; finish the release in a separate workflow that runs release-publish-verify first.
+    default: "true"
+  request-file:
+    description: File that receives the request as sent (JSON), for release-publish-verify. Empty writes none.
+    default: ""
 outputs:
   run-url:
     description: The publisher run.
@@ -63,5 +69,7 @@ runs:
         PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
         PUBLISH_APP_ID: ${{ inputs.app-id }}
         PUBLISH_APP_PRIVATE_KEY: ${{ inputs.private-key }}
+        PUBLISH_WAIT: ${{ inputs.wait }}
+        PUBLISH_REQUEST_FILE: ${{ inputs.request-file }}
         PUBLISH_SCRIPT: ${{ github.action_path }}/publish.py
       run: python3 -I "$PUBLISH_SCRIPT"
