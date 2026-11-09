@@ -13,6 +13,13 @@ repository only, before the current one is 45 minutes old and after a failed
 poll. Without them it polls with GH_TOKEN, so the wait ends when that token
 expires. A failed poll (an expired token, a GitHub 5xx) is retried; only
 MAX_POLL_FAILURES in a row fail the step.
+
+PUBLISH_WAIT=false hands the request off instead: the step ends once the
+publisher run exists, and the release waits for its approval in the publisher
+(up to GitHub's 30 days) rather than in this job. The caller then finishes the
+release in a separate workflow that checks the publisher run and the public
+names (the release-publish-verify action). PUBLISH_REQUEST_FILE, when set,
+receives the request as sent, for that check.
 """
 
 import hashlib
@@ -47,6 +54,11 @@ def main(environment):
     repository = environment["PUBLISHER_REPOSITORY"]
     if not REPOSITORY.fullmatch(repository):
         raise ValueError("Invalid publisher repository")
+    wait_for_run = environment.get("PUBLISH_WAIT", "true")
+    if wait_for_run not in ("true", "false"):
+        raise ValueError("wait must be true or false")
+    if environment.get("PUBLISH_REQUEST_FILE"):
+        Path(environment["PUBLISH_REQUEST_FILE"]).write_text(json.dumps(request, indent=2, sort_keys=True) + "\n")
     gh("api", "-X", "POST", f"repos/{repository}/dispatches", "--input", "-",
        stdin=json.dumps({"event_type": "publish-release-images", "client_payload": request}))
     run_id = find_run(repository, request["request_id"])
@@ -56,6 +68,9 @@ def main(environment):
     if output:
         with open(output, "a") as handle:
             handle.write(f"run-url={url}\nrun-id={run_id}\n")
+    if wait_for_run == "false":
+        print("Handed off: the release waits for its approval in the publisher run")
+        return
     tokens = Tokens(environment, repository)
     try:
         wait(repository, run_id, tokens)

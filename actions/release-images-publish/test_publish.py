@@ -116,6 +116,14 @@ class PublishTests(unittest.TestCase):
                       (self.directory / "output").read_text())
         self.assertIn("run-id=7\n", (self.directory / "output").read_text())
 
+    def test_a_hand_off_ends_once_the_publisher_run_exists(self):
+        gh = Gh(statuses=["waiting"] * 1000)
+        request_file = self.directory / "request.json"
+        self.publish(gh, PUBLISH_WAIT="false", PUBLISH_REQUEST_FILE=str(request_file))
+        self.assertEqual(gh.poll_tokens, [])
+        self.assertIn("run-id=7\n", (self.directory / "output").read_text())
+        self.assertEqual(json.loads(request_file.read_text()), gh.dispatched["client_payload"])
+
     def test_charts_are_named_by_file_and_bound_to_this_run(self):
         chart = self.directory / "appa-runtime-1.2.3.tgz"
         chart.write_bytes(b"chart")
@@ -203,6 +211,7 @@ class PublishTests(unittest.TestCase):
             {"PUBLISH_LATEST": "always"},
             {"PUBLISH_SMOKE": "yes"},
             {"PUBLISH_GATE": "yes"},
+            {"PUBLISH_WAIT": "no"},
             {"PUBLISH_IMAGES_FILE": str(self.directory / "bad.json")},
             {"PUBLISH_CHARTS": str(chart)},
             {"PUBLISH_ASSETS": str(self.directory / "missing.zip")},
