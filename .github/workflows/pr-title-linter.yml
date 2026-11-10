@@ -1,0 +1,34 @@
+name: PR Title Linter
+
+# Runs the shared lint-pr-title action from this checkout, so a change to the
+# action or its rules is exercised on its own pull request.
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+  merge_group:
+
+permissions: {}
+
+concurrency:
+  group: "pr-title-linter-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  lint-pr-title:
+    name: PR Title Linter
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read # Required to check out the repository.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint PR title
+        uses: $/actions/lint-pr-title
