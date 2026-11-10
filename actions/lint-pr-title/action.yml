@@ -1,0 +1,28 @@
+name: Lint PR title
+description: Check a pull request title against the organization's Conventional Commits rules.
+inputs:
+  extra-types:
+    description: >-
+      Commit types the calling repository accepts on top of the organization's
+      list, separated by commas, spaces or newlines.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    # A merge queue entry has no title of its own: the title was linted on the
+    # pull request. Repositories that require this check still need it to post.
+    - name: Pass for merge queue
+      if: github.event_name == 'merge_group'
+      shell: bash
+      run: echo "PR title was already linted before entering the merge queue."
+
+    - name: Lint PR title
+      if: github.event_name != 'merge_group'
+      uses: grafana/shared-workflows/actions/lint-pr-title@70c40e5b6522c854a55334124545261cae3d4c73 # lint-pr-title/v1.2.4
+      with:
+        config-path: ${{ github.action_path }}/commitlint.config.js
+      env:
+        # commitlint.config.js reads this. lint-pr-title loads the config in
+        # its own process, so the step's environment reaches it.
+        LINT_PR_TITLE_EXTRA_TYPES: ${{ inputs.extra-types }}
