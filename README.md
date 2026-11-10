@@ -49,6 +49,15 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
 
 Pin callers to a reviewed full commit SHA, as with the shared actions.
 
+## Releases of this repository
+
+This repository releases itself with Release Please ([`release.yml`](.github/workflows/release.yml), which calls `release-please.yml` from the same commit). Nobody tags by hand.
+
+- Merges to `main` keep one `chore(main): release X.Y.Z` pull request up to date. It carries the next version and the changelog, computed from the conventional commit titles since the last release: `feat` bumps the minor, a breaking change (`!`) the major, anything else the patch.
+- Merging it creates the `vX.Y.Z` tag on the merge commit, the GitHub release and the `CHANGELOG.md` entry. The tags keep the form callers pin (`@<full sha> # vX.Y.Z`) and Dependabot follows.
+- The archestra-releaser App opens the PR and creates the release. Its ID and key (`APP_ID`, `APP_PRIVATE_KEY`) live in this repository's `releaser` environment, which only `main` can deploy to.
+- The config and current version live in [`.github/release-please/`](.github/release-please/). Release Please started at `1.25.0` (`v1.25.0` = `7e43fad`), so the first release PR lists only the changes after it.
+
 ## Release publisher
 
 [`release-publish.yml`](.github/workflows/release-publish.yml) is a reusable workflow that asks [release-publisher](https://github.com/archestra-ai/release-publisher) to publish a release run's attested staged images, charts and release assets, and waits for the publisher's run, the release's approval included (every release, prereleases too; dry runs need none). Callers wait here, so the 360-minute job limit is set once.
