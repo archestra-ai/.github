@@ -1,0 +1,39 @@
+name: Release
+
+# Releases this repository with Release Please, through this repository's own
+# reusable workflow (release-please.yml). It is called with the
+# self-repository `$/` syntax (zizmor's self-repository audit), from the same
+# commit, so a change to it runs here first.
+#
+# Merges to main keep one "chore(main): release X.Y.Z" pull request up to
+# date with the next version (from the conventional commit titles since the
+# last release: feat bumps the minor, fix and the rest the patch, a breaking
+# change the major) and its changelog. Merging it creates the vX.Y.Z tag on
+# that commit and its GitHub release. The tags keep the form callers pin
+# (`@<full sha> # vX.Y.Z`) and Dependabot follows.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-please
+  # Never cancel: a half-run Release Please leaves the manifest and the open
+  # release PR disagreeing about the next version.
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Maintain release PRs
+    permissions: {} # The reusable workflow writes with the App token only.
+    uses: $/.github/workflows/release-please.yml
+    with:
+      # The archestra-releaser App's ID and key live only in this
+      # environment, which only main can deploy to (archestra-ai/infra
+      # github/org/environments.tf).
+      environment: releaser
+    secrets:
+      APP_ID: ${{ secrets.APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
