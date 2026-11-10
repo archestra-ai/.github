@@ -42,6 +42,8 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+      - name: Test PR title rules
+        run: node --test actions/lint-pr-title/commitlint.config.test.mjs
       - name: Test private review access boundaries and cleanup
         env:
           RUN_NETWORK_TESTS: "1"
