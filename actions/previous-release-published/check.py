@@ -16,6 +16,10 @@ Only push access lists draft releases, so the token needs contents write. A
 draft that was deleted to abandon a version (its tag kept) holds nothing back,
 nor does a draft older than a release published after it.
 
+Every GitHub call is retried for about 45 seconds when GitHub is down, rate
+limited or unreachable (5xx, 429, a rate-limit 403, a dropped connection or a
+timeout), then fails closed. A refused request (401, 404, ...) fails at once.
+
   check    pull_request: PR_NUMBER. merge_group: MERGE_GROUP_BASE_SHA,
            MERGE_GROUP_HEAD_SHA, MERGE_GROUP_HEAD_REF.
            (GH_TOKEN: contents write, pull-requests write, actions read)
@@ -33,6 +37,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z]+)\.(\d+))?")
 RELEASE_HEAD = "release-please--branches--"
@@ -44,6 +49,16 @@ COMMENT_AUTHOR = "github-actions[bot]"
 # comment links the waiting ones instead of naming each.
 PUBLISHER_WAITING_URL = ("https://github.com/archestra-ai/release-publisher/actions/workflows/publish.yml"
                          "?query=status%3Awaiting")
+# A gh call that hits a transient GitHub error (5xx, 429, a rate limit, a
+# dropped connection or a timeout) is retried after each of these delays, 45s
+# in all, then fails closed. Any other error (401, 404, ...) fails at once.
+RETRY_DELAYS = (3, 6, 12, 24)
+GH_TIMEOUT = 30
+HTTP_STATUS = re.compile(r"\(HTTP (\d{3})\)")
+TRANSIENT_NETWORK = re.compile(
+    r"connection (?:reset|refused)|broken pipe|unexpected EOF|i/o timeout|TLS handshake timeout"
+    r"|context deadline exceeded|timeout awaiting response headers|no such host|error connecting to"
+    r"|server misbehaving|network is unreachable|stream error|http2: ", re.IGNORECASE)
 MERGE_GROUP_PR = re.compile(r"/pr-(\d+)-[0-9a-f]+$")
 SQUASH_PR = re.compile(r"\(#(\d+)\)$")
 
@@ -151,7 +166,33 @@ class GitHub:
         return json.loads(output) if output else {}
 
     def _gh(self, *args, stdin=None):
-        return subprocess.run(("gh", *args), input=stdin, text=True, capture_output=True, check=True).stdout.strip()
+        command = ("gh", *args)
+        for attempt, delay in enumerate((*RETRY_DELAYS, None), start=1):
+            try:
+                return subprocess.run(command, input=stdin, text=True, capture_output=True, check=True,
+                                      timeout=GH_TIMEOUT).stdout.strip()
+            except subprocess.TimeoutExpired:
+                error = subprocess.CalledProcessError(124, command, stderr=f"no answer within {GH_TIMEOUT}s")
+            except subprocess.CalledProcessError as failure:
+                if not transient(failure.stderr):
+                    raise
+                error = failure
+            if delay is None:
+                error.stderr = f"{(error.stderr or '').strip()} (still failing after {attempt} attempts)"
+                raise error
+            print(f"::warning::{' '.join(command)} failed ({(error.stderr or '').strip()}); "
+                  f"retrying in {delay}s ({attempt}/{len(RETRY_DELAYS)})", flush=True)
+            time.sleep(delay)
+
+
+def transient(stderr):
+    """Whether a failed gh call is worth retrying: GitHub was down, rate
+    limited or unreachable, not refusing the request."""
+    statuses = HTTP_STATUS.findall(stderr or "")
+    if statuses:
+        status = int(statuses[-1])
+        return status >= 500 or status == 429 or (status == 403 and "rate limit" in stderr.lower())
+    return bool(TRANSIENT_NETWORK.search(stderr or ""))
 
 
 def blockers_for(github, version, config):

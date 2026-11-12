@@ -1,9 +1,13 @@
 """Exercise check.py, stubbing only the GitHub API."""
 
 import importlib.util
+import contextlib
+import io
 import json
 from pathlib import Path
+import subprocess
 import unittest
+from unittest import mock
 
 SPEC = importlib.util.spec_from_file_location("previous_release_published", Path(__file__).with_name("check.py"))
 CHECK = importlib.util.module_from_spec(SPEC)
@@ -276,6 +280,94 @@ class RecheckTests(unittest.TestCase):
         github = FakeGitHub(drafts=tags("1.5.0-rc.28"), pulls=[MAIN_PR], runs={"abc": self.run_list("failure")})
         self.assertEqual(self.recheck(github), [])
         self.assertEqual(github.sent, [])
+
+
+class FakeGh:
+    """The gh process: fails each call with the queued errors, then answers.
+    Patches subprocess.run and time.sleep while active."""
+
+    def __init__(self, *failures, stdout='{"default_branch": "main"}'):
+        self.failures = list(failures)
+        self.stdout = stdout
+        self.calls = []
+        self.slept = []
+
+    def run(self, command, **kwargs):
+        self.calls.append(command)
+        if self.failures:
+            failure = self.failures.pop(0)
+            if failure == "timeout":
+                raise subprocess.TimeoutExpired(command, kwargs.get("timeout"))
+            raise subprocess.CalledProcessError(1, command, stderr=failure)
+        return subprocess.CompletedProcess(command, 0, stdout=self.stdout)
+
+    def __enter__(self):
+        self.patches = contextlib.ExitStack()
+        self.patches.enter_context(mock.patch("subprocess.run", self.run))
+        self.patches.enter_context(mock.patch("time.sleep", self.slept.append))
+        self.patches.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        return CHECK.GitHub(REPO)
+
+    def __exit__(self, *exc):
+        self.patches.close()
+
+
+class GitHubRetryTests(unittest.TestCase):
+    TRANSIENT = ("gh: Server Error (HTTP 502)", "gh: Service Unavailable (HTTP 503)",
+                 "gh: Gateway Timeout (HTTP 504)", "gh: Too Many Requests (HTTP 429)",
+                 "gh: You have exceeded a secondary rate limit. Please wait a few minutes (HTTP 403)",
+                 "gh: API rate limit exceeded for installation ID 1. (HTTP 403)",
+                 'Get "https://api.github.com/repos/x/y": read tcp 10.0.0.1:443: read: connection reset by peer',
+                 'Post "https://api.github.com/graphql": net/http: TLS handshake timeout',
+                 "error connecting to api.github.com", "timeout")
+
+    def call(self, fake):
+        with fake as github:
+            return github.get(f"repos/{REPO}")
+
+    def test_retries_transient_errors_until_github_answers(self):
+        for failure in self.TRANSIENT:
+            with self.subTest(failure=failure):
+                fake = FakeGh(failure, failure)
+                self.assertEqual(self.call(fake), {"default_branch": "main"})
+                self.assertEqual(len(fake.calls), 3)
+                self.assertEqual(fake.slept, list(CHECK.RETRY_DELAYS[:2]))
+
+    def test_the_merge_queue_release_listing_survives_a_bad_gateway(self):
+        fake = FakeGh("gh: Server Error (HTTP 502)", stdout=json.dumps(["platform-v1.5.0-rc.27", False]))
+        with fake as github:
+            blockers = CHECK.blockers_for(github, "1.5.0-rc.28", BRANCHED)
+        self.assertEqual(blockers, [])
+        self.assertEqual(fake.calls[0][:3], ("gh", "api", "--paginate"))
+        self.assertEqual(len(fake.calls), 2)
+
+    def test_gives_up_after_the_last_retry_and_fails_closed(self):
+        fake = FakeGh(*["gh: Server Error (HTTP 502)"] * len(self.TRANSIENT))
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            self.call(fake)
+        self.assertEqual(len(fake.calls), len(CHECK.RETRY_DELAYS) + 1)
+        self.assertEqual(fake.slept, list(CHECK.RETRY_DELAYS))
+        self.assertTrue(40 <= sum(CHECK.RETRY_DELAYS) <= 90)
+        self.assertIn("HTTP 502", raised.exception.stderr)
+        self.assertIn(f"after {len(fake.calls)} attempts", raised.exception.stderr)
+
+    def test_does_not_retry_requests_github_refused(self):
+        for failure in ("gh: Bad credentials (HTTP 401)", "gh: Resource not accessible by integration (HTTP 403)",
+                        "gh: Not Found (HTTP 404)", "gh: Validation Failed (HTTP 422)",
+                        "To get started with GitHub CLI, please run:  gh auth login",
+                        "failed to parse jq expression"):
+            with self.subTest(failure=failure):
+                fake = FakeGh(failure)
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    self.call(fake)
+                self.assertEqual((len(fake.calls), fake.slept), (1, []))
+                self.assertEqual(raised.exception.stderr, failure)
+
+    def test_a_missing_tag_is_still_none_without_retrying(self):
+        fake = FakeGh("gh: Not Found (HTTP 404)")
+        with fake as github:
+            self.assertIsNone(github.get_optional(f"repos/{REPO}/git/ref/tags/platform-v1.5.0-rc.28"))
+        self.assertEqual(len(fake.calls), 1)
 
 
 if __name__ == "__main__":
