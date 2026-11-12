@@ -21,6 +21,10 @@ still a draft, so releases publish in order. Every other PR passes at once.
   on `release: published` (a release published by hand), and by
   `workflow_dispatch` from the job that publishes releases: a publish with
   `GITHUB_TOKEN` starts no `release` event.
+- **Retries:** a GitHub API call that fails with a 5xx, a 429, a rate-limit
+  403, a dropped connection or a timeout is retried four times over about 45
+  seconds, then fails the check. A refused request (401, 404, ...) is not
+  retried.
 - **Tokens:** only push access lists draft releases, so both modes need
   `contents: write`, though they write no contents. release-publisher is
   private, so the comment links its waiting runs, not the exact run.
