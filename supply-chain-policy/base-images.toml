@@ -1,0 +1,54 @@
+# Base images that Dockerfiles across archestra-ai may build on, and how to
+# verify each one. verify_base_images.py reads this; see "Base image
+# signatures" in README.md.
+#
+# `repository` is a registry/path, with `*` matching any characters
+# (including `/`). Docker Hub names are written in full:
+# `node` is `docker.io/library/node`, `archestra/platform` is
+# `docker.io/archestra/platform`. When several entries match, the longest
+# pattern wins, so an exact repository beats a wildcard.
+#
+# [[signed]]: the image must verify, or the check fails.
+#   method = "github"  `gh attestation verify`. Set `owner` or `repo`;
+#                      `signer_workflow` pins the workflow that built it;
+#                      `bundle_from_oci = true` reads the attestation from the
+#                      registry instead of the GitHub API.
+#   method = "cosign"  `cosign verify` of a keyless signature. Set `issuer`
+#                      and `identity` (or `identity_regexp`).
+#
+# [[unsigned]]: the publisher signs nothing we can verify; the image is
+# allowed unverified. Say why in `reason`. Move an entry to [[signed]] as soon
+# as its publisher signs.
+#
+# Changing this file changes what every repository trusts, so CODEOWNERS
+# requires a second review.
+
+# --- signed --------------------------------------------------------------------
+
+[[signed]]
+repository = "ghcr.io/archestra-ai/*"
+method = "github"
+owner = "archestra-ai"
+
+[[signed]]
+repository = "docker.io/archestra/*"
+method = "github"
+owner = "archestra-ai"
+
+[[signed]]
+repository = "ghcr.io/astral-sh/uv"
+method = "github"
+repo = "astral-sh/uv"
+signer_workflow = "astral-sh/uv/.github/workflows/build-docker.yml"
+
+[[signed]]
+repository = "gcr.io/distroless/*"
+method = "cosign"
+issuer = "https://accounts.google.com"
+identity = "keyless@distroless.iam.gserviceaccount.com"
+
+# --- unsigned ------------------------------------------------------------------
+
+[[unsigned]]
+repository = "docker.io/library/*"
+reason = "Docker Official Images ship SBOM and provenance attestations, but unsigned: they show nothing a registry compromise could not also write."
