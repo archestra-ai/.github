@@ -31,6 +31,7 @@ not block.
 | No remote script piped into a shell or interpreter (`curl ... \| sh`, `bash <(curl ...)`) | fail* |
 | Dockerfile `FROM` names a tag; an untagged image pulls `latest` | fail |
 | Dockerfile `FROM` pins a digest (`image:tag@sha256:...`) | warn |
+| Every image a Dockerfile pulls (`FROM`, `COPY --from`) verifies with its publisher's signature, or is listed as unsigned (see [Base image signatures](#base-image-signatures)) | fail |
 | CI installs do not turn off the frozen lockfile (`pnpm install --no-frozen-lockfile`, `yarn install --no-immutable`) | fail |
 | CI and Dockerfiles install npm projects with `npm ci`, and Dockerfiles run `pnpm install --frozen-lockfile` | warn |
 | JavaScript projects with dependencies commit a lockfile | warn |
@@ -90,6 +91,60 @@ A download counts as verified when one of these appears in the 12 lines from
 it: `sha256sum -c`, `sha512sum -c`, `shasum -a 256 -c`, `cosign verify`,
 `gpg --verify`, `minisign -Vm`, `gh attestation verify`, `slsa-verifier verify`,
 or `openssl dgst` with `-verify` or a `test "$A" = "$B"` comparison.
+
+## Base image signatures
+
+A digest pin stops a tag from moving, but not a new, malicious digest: with a
+stolen publisher token, an attacker pushes a backdoored image and Dependabot
+opens a pull request bumping our pin to it. The publisher's signature is what
+tells the two apart: only the publisher's own build can sign as it.
+
+[`verify_base_images.py`](verify_base_images.py) checks every image a
+Dockerfile pulls (`FROM` and `COPY --from`) against
+[`base-images.toml`](base-images.toml):
+
+- **Signed** entries say how the publisher signs: a GitHub artifact
+  attestation (`gh attestation verify`) or a keyless cosign signature
+  (`cosign verify`), and whose. The image must verify, or the check fails.
+- **Unsigned** entries are the ignore list: publishers that sign nothing we
+  can verify, each with its reason. Docker Official Images (`node`, `python`,
+  `golang`, `rust`, `debian`, ...) are here: they ship provenance, but
+  unsigned.
+- Any image missing from the list **fails**, so each new source is a
+  deliberate choice.
+
+In pull requests and the merge queue, only references that are new since the
+base commit are checked: a pull request verifies the images it introduces or
+bumps. An image named by an `ARG` without a default is known only at build
+time and warns.
+
+To fix a finding:
+
+- **Not in the list:** add its repository here, as `[[signed]]` with how to
+  verify it, or `[[unsigned]]` with a reason. Prefer `[[signed]]`; check the
+  publisher's docs, or run `cosign tree <image>` and look for an attestation
+  with `gh attestation verify oci://<image> --owner <org>`.
+- **Failed to verify:** first check the image really comes from its
+  publisher. If the publisher stopped signing or changed its identity, update
+  the entry.
+- **One-off exception:** mark the line, or the `ARG` that names the image,
+  with a reason. Unlike the other markers, this one must be on the line or in
+  the comment block directly above it, so it allows exactly one image:
+
+```dockerfile
+# supply-chain-policy: allow-unverified-image vendor image, unsigned upstream (T-1234)
+FROM registry.example.com/vendor/tool:1.2.3@sha256:...
+```
+
+Changes to `base-images.toml` reach repositories only when the organization
+ruleset's pin moves to a new release of this repository, in a reviewed pull
+request in `archestra-ai/infra`.
+
+To check every reference in a repository, not only new ones:
+
+```sh
+python3 supply-chain-policy/verify_base_images.py /path/to/repository
+```
 
 ## Cargo release age
 

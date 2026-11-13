@@ -66,3 +66,42 @@ jobs:
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           python3 ../.org-github/actions/cargo-release-age/check-cargo-release-age.py \
             --base-ref "$BASE_SHA" --all-lockfiles
+
+      # Every image a Dockerfile pulls must verify with its publisher's
+      # signature, or be listed as unsigned in base-images.toml (see "Base
+      # image signatures" in the README). Only references new since the base
+      # commit are checked. gh reads attestations with the job token; cosign
+      # needs no token.
+      - name: Find Dockerfiles
+        id: dockerfiles
+        if: ${{ !cancelled() }}
+        working-directory: target
+        run: |
+          if git ls-files | grep -qiE '(^|/)(Dockerfile[^/]*|[^/]*\.dockerfile)$'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No Dockerfile; skipped."
+          fi
+
+      - name: Install cosign
+        if: ${{ !cancelled() && steps.dockerfiles.outputs.found == 'true' }}
+        run: bash .org-github/supply-chain-policy/install-cosign.sh
+
+      - name: Verify base image signatures
+        if: ${{ !cancelled() && steps.dockerfiles.outputs.found == 'true' }}
+        working-directory: target
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          GH_TOKEN: ${{ github.token }}
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: credential.helper
+          GIT_CONFIG_VALUE_0: ""
+          GIT_CONFIG_KEY_1: credential.https://github.com.helper
+          GIT_CONFIG_VALUE_1: '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
+        run: |
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::No base commit to compare Dockerfiles with."
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          python3 ../.org-github/supply-chain-policy/verify_base_images.py . --base-ref "$BASE_SHA"
