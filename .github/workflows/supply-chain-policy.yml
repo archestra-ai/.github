@@ -85,9 +85,7 @@ jobs:
 
       - name: Install cosign
         if: ${{ !cancelled() && steps.dockerfiles.outputs.found == 'true' }}
-        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
-        with:
-          cosign-release: v3.1.4
+        run: bash .org-github/supply-chain-policy/install-cosign.sh
 
       - name: Verify base image signatures
         if: ${{ !cancelled() && steps.dockerfiles.outputs.found == 'true' }}
