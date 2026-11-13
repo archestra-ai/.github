@@ -35,11 +35,19 @@ repository = "docker.io/archestra/*"
 method = "github"
 owner = "archestra-ai"
 
+# Release images, also served from the public Artifact Registry repository.
+[[signed]]
+repository = "europe-west1-docker.pkg.dev/friendly-path-465518-r6/archestra-public/*"
+method = "github"
+owner = "archestra-ai"
+
+# Two uv workflows sign: build-docker.yml (uv itself) and
+# publish-docker-image.yml (the python and distro variants). Versions before
+# about 0.6 have no attestations.
 [[signed]]
 repository = "ghcr.io/astral-sh/uv"
 method = "github"
 repo = "astral-sh/uv"
-signer_workflow = "astral-sh/uv/.github/workflows/build-docker.yml"
 
 [[signed]]
 repository = "gcr.io/distroless/*"
@@ -48,6 +56,21 @@ issuer = "https://accounts.google.com"
 identity = "keyless@distroless.iam.gserviceaccount.com"
 
 # --- unsigned ------------------------------------------------------------------
+
+# Built by CI for CI and Lobster runtimes; not attested yet. Remove this entry
+# once the image workflows run actions/attest-build-provenance, so the
+# ghcr.io/archestra-ai/* entry above applies.
+[[unsigned]]
+repository = "ghcr.io/archestra-ai/ci/*"
+reason = "archestra-ai CI images are not attested yet."
+
+[[unsigned]]
+repository = "mcr.microsoft.com/*"
+reason = "Microsoft signs MCR images with Notary Project signatures, which this check cannot verify yet."
+
+[[unsigned]]
+repository = "cr.kagent.dev/*"
+reason = "kagent publishes no signatures or attestations."
 
 [[unsigned]]
 repository = "docker.io/library/*"

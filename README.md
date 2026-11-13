@@ -24,7 +24,7 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
 
 ## Supply-chain policy
 
-[`supply-chain-policy.yml`](.github/workflows/supply-chain-policy.yml) is enforced the same way: an organization ruleset in `archestra-ai/infra` requires it on every repository's pull requests and merge queue, from the same pinned tag. It checks that Dependabot updates use a seven-day cooldown, that pnpm waits seven days for new releases and skips install scripts, and that Cargo lockfiles are committed and used. See [supply-chain-policy/README.md](supply-chain-policy/README.md) for the rules, starter configuration for new repositories, and how to fix each finding.
+[`supply-chain-policy.yml`](.github/workflows/supply-chain-policy.yml) is enforced the same way: an organization ruleset in `archestra-ai/infra` requires it on every repository's pull requests and merge queue, from the same pinned tag. It checks that Dependabot updates use a seven-day cooldown, that pnpm waits seven days for new releases and skips install scripts, and that Cargo lockfiles are committed and used. It also verifies that every image a Dockerfile builds on is signed by its publisher, or is on the list of known unsigned images. See [supply-chain-policy/README.md](supply-chain-policy/README.md) for the rules, starter configuration for new repositories, and how to fix each finding.
 
 ## Shared Actions
 
