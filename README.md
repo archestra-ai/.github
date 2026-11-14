@@ -2,6 +2,15 @@
 
 Organization-level GitHub workflows and default community health files for `archestra-ai`.
 
+## Tests
+
+`python3 tests/run_python_tests.py` runs every Python test in the repository,
+one `unittest discover` process per directory, and prints a count per
+directory. Pass directories to run only those, and unittest options after `--`
+(`python3 tests/run_python_tests.py supply-chain-policy -- -v`). CI runs it in
+the Shared Action Tests workflow with `RUN_NETWORK_TESTS=1`, which turns on the
+staging-iap test that needs a Linux runner.
+
 ## Zizmor rollout
 
 This repository contains the canonical `zizmor` workflow intended to be enforced with an organization repository ruleset using `Require workflows to pass before merging`.

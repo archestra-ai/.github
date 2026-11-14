@@ -30,9 +30,8 @@ Vercel uses CLI `59.15.1`, uploads source and builds remotely. It supports team-
 tokens without `vercel pull` or `--prebuilt`. Keep project-specific verification and
 smoke tests in the caller. Hosted Ubuntu runners supply Python 3 and Node/npm.
 
-Test locally with `python3 -m unittest discover -s actions/vercel-deploy -v`
-`python3 -m unittest discover -s actions/release-images-publish -v`
-`python3 -m unittest discover -s actions/release-publish-verify -v`
-and `python3 -m unittest discover -s actions/previous-release-published -v`.
+Test locally with `python3 tests/run_python_tests.py actions` (every action's
+tests), or name one action directory, for example
+`python3 tests/run_python_tests.py actions/vercel-deploy -- -v`.
 The Vercel tests use a fake CLI and never authenticate or deploy.
 To roll back, revert a caller's pin or its migration PR; no credential rotation is required.

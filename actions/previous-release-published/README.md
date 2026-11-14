@@ -94,4 +94,4 @@ protects, so put the caller on each of them (the default branch and every
 live `release/*`) before the ruleset requires it.
 
 Test locally with
-`python3 -m unittest discover -s actions/previous-release-published -v`.
+`python3 tests/run_python_tests.py actions/previous-release-published -- -v`.

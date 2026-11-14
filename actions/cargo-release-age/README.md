@@ -69,5 +69,5 @@ policy workflow runs it this way. Run the policy
 tests from this repository with:
 
 ```sh
-python3 -m unittest discover -s actions/cargo-release-age -p 'test_*.py'
+python3 tests/run_python_tests.py actions/cargo-release-age
 ```
