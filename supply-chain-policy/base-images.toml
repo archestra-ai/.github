@@ -1,0 +1,88 @@
+# Base images that Dockerfiles across archestra-ai may build on, and how to
+# verify each one. verify_base_images.py reads this; see "Base image
+# signatures" in README.md.
+#
+# `repository` is a registry/path, with `*` matching any characters
+# (including `/`). Docker Hub names are written in full:
+# `node` is `docker.io/library/node`, `archestra/platform` is
+# `docker.io/archestra/platform`. When several entries match, the longest
+# pattern wins, so an exact repository beats a wildcard.
+#
+# [[signed]]: the image must verify, or the check fails.
+#   method = "github"  `gh attestation verify`. Set `owner` or `repo`;
+#                      `signer_workflow` pins the workflow that built it;
+#                      `bundle_from_oci = true` reads the attestation from the
+#                      registry instead of the GitHub API.
+#   method = "cosign"  `cosign verify` of a keyless signature. Set `issuer`
+#                      and `identity` (or `identity_regexp`).
+#   method = "notation" `notation verify` of a Notary Project signature. Set
+#                      `ca` (the root certificate, a PEM file under trust/),
+#                      `identity` (the signing certificate's subject) and,
+#                      when the publisher timestamps, `tsa` (the timestamping
+#                      root), so signatures stay valid after the signing
+#                      certificate expires.
+#
+# [[unsigned]]: the publisher signs nothing we can verify; the image is
+# allowed unverified. Say why in `reason`. Move an entry to [[signed]] as soon
+# as its publisher signs.
+#
+# Changing this file changes what every repository trusts, so CODEOWNERS
+# requires a second review.
+
+# --- signed --------------------------------------------------------------------
+
+# Includes the CI images under ghcr.io/archestra-ai/ci/, which the shared
+# image build in archestra-ai/archestra attests (archestra#10734). Digests
+# built before that carry no attestation: bump to a current one.
+[[signed]]
+repository = "ghcr.io/archestra-ai/*"
+method = "github"
+owner = "archestra-ai"
+
+[[signed]]
+repository = "docker.io/archestra/*"
+method = "github"
+owner = "archestra-ai"
+
+# Release images, also served from the public Artifact Registry repository.
+[[signed]]
+repository = "europe-west1-docker.pkg.dev/friendly-path-465518-r6/archestra-public/*"
+method = "github"
+owner = "archestra-ai"
+
+# Two uv workflows sign: build-docker.yml (uv itself) and
+# publish-docker-image.yml (the python and distro variants). Versions before
+# about 0.6 have no attestations.
+[[signed]]
+repository = "ghcr.io/astral-sh/uv"
+method = "github"
+repo = "astral-sh/uv"
+
+[[signed]]
+repository = "gcr.io/distroless/*"
+method = "cosign"
+issuer = "https://accounts.google.com"
+identity = "keyless@distroless.iam.gserviceaccount.com"
+
+# Microsoft signs MCR images with Notary Project signatures from its supply
+# chain root, timestamped by its Time-Stamp service. Both roots come from
+# Microsoft's PKI (microsoft.com/pkiops/certs and microsoft.com/pki/certs);
+# SHA-256 fingerprints:
+#   Supply Chain RSA Root CA 2022     23ffe2b8bdb9a1711515d4cffda04bc7f793d513c76c243f1020507d8669b7db
+#   Root Certificate Authority 2010   df545bf919a2439c36983b54cdfc903dfa4f37d3996d8d84b4c31eec6f3c163e
+[[signed]]
+repository = "mcr.microsoft.com/*"
+method = "notation"
+ca = "trust/microsoft-supply-chain-rsa-root-ca-2022.pem"
+tsa = "trust/microsoft-root-certificate-authority-2010.pem"
+identity = "CN=Microsoft SCD Products RSA Signing,O=Microsoft Corporation,L=Redmond,ST=Washington,C=US"
+
+# --- unsigned ------------------------------------------------------------------
+
+[[unsigned]]
+repository = "cr.kagent.dev/*"
+reason = "kagent publishes no signatures or attestations."
+
+[[unsigned]]
+repository = "docker.io/library/*"
+reason = "Docker Official Images ship SBOM and provenance attestations, but unsigned: they show nothing a registry compromise could not also write."

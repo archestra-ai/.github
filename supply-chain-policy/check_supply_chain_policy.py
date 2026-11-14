@@ -942,35 +942,17 @@ def check_base_images(repo: Repository) -> list[Finding]:
     does); a tag without a digest can be moved to new content (warns)."""
     findings = []
     for path in sorted(p for p in repo.files if is_dockerfile(p)):
-        lines = fold_continuations(repo.text(path).splitlines())
-        texts = [text for _, text in lines]
-        args: dict[str, str] = {}
-        stages: set[str] = set()
-        for index, (number, line) in enumerate(lines):
-            stripped = line.strip()
-            arg = re.fullmatch(r"(?i)ARG\s+(\w+)=(\"[^\"]*\"|'[^']*'|\S+)", stripped)
-            if arg:
-                args[arg.group(1)] = arg.group(2).strip("\"'")
+        for image in dockerfile_images(path, repo.text(path)):
+            if image.kind != "from" or image.resolved is None or "@sha256:" in image.resolved:
                 continue
-            match = FROM_LINE.match(stripped)
-            if not match:
-                continue
-            image, stage = match.group("image"), match.group("stage")
-            if stage:
-                stages.add(stage.lower())
-            resolved = expand_args(image, args)
-            if resolved is None or resolved.lower() in stages or resolved == "scratch":
-                continue
-            if "@sha256:" in resolved:
-                continue
-            reference = resolved.rsplit("/", 1)[-1]
+            reference = image.resolved.rsplit("/", 1)[-1]
             if ":" not in reference:
-                if not has_marker(texts, index, LATEST_ALLOW_MARKER):
+                if not image.marked(LATEST_ALLOW_MARKER):
                     findings.append(
                         Finding(
                             FAIL,
                             path,
-                            f"Line {number}: `FROM {image}` has no tag, so it pulls `latest`.",
+                            f"Line {image.line}: `FROM {image.written}` has no tag, so it pulls `latest`.",
                             "Pin a version tag and digest (`image:1.2.3@sha256:...`); Dependabot's "
                             "`docker` ecosystem keeps both current.",
                         )
@@ -980,13 +962,61 @@ def check_base_images(repo: Repository) -> list[Finding]:
                 Finding(
                     WARN,
                     path,
-                    f"Line {number}: `FROM {resolved}` is not pinned by digest, so the tag can be "
+                    f"Line {image.line}: `FROM {image.resolved}` is not pinned by digest, so the tag can be "
                     "moved to different content.",
                     "Append the digest (`image:tag@sha256:...`); Dependabot's `docker` ecosystem "
                     "updates tag and digest together.",
                 )
             )
     return findings
+
+
+@dataclass(frozen=True)
+class DockerfileImage:
+    """An image a Dockerfile pulls: a `FROM` base or a `COPY --from` source.
+    Earlier build stages and `scratch` are not images and are left out."""
+
+    path: str
+    line: int
+    kind: str  # "from" or "copy"
+    written: str
+    resolved: str | None  # ARG defaults substituted; None when an ARG has none
+    lines: tuple[str, ...]  # the folded lines, for markers
+    indexes: tuple[int, ...]  # the line and any ARG line that set the image
+
+    def marked(self, marker: str) -> bool:
+        return any(has_marker(list(self.lines), index, marker) for index in self.indexes)
+
+
+def dockerfile_images(path: str, text: str) -> list[DockerfileImage]:
+    folded = fold_continuations(text.splitlines())
+    texts = tuple(line for _, line in folded)
+    args: dict[str, tuple[str, int]] = {}
+    stages: set[str] = set()
+    images = []
+    for index, (number, line) in enumerate(folded):
+        stripped = line.strip()
+        arg = re.fullmatch(r"(?i)ARG\s+(\w+)=(\"[^\"]*\"|'[^']*'|\S+)", stripped)
+        if arg:
+            args[arg.group(1)] = (arg.group(2).strip("\"'"), index)
+            continue
+        match = FROM_LINE.match(stripped)
+        if match:
+            kind, written, stage = "from", match.group("image"), match.group("stage")
+        else:
+            copy = COPY_FROM.match(stripped)
+            if not copy:
+                continue
+            kind, written, stage = "copy", copy.group("image"), None
+        used = [args[name][1] for name in re.findall(r"\$\{?(\w+)", written) if name in args]
+        resolved = expand_args(written, {name: value for name, (value, _) in args.items()})
+        if stage:
+            stages.add(stage.lower())
+        if resolved is not None and (resolved.lower() in stages or resolved == "scratch"
+                                     or (kind == "copy" and resolved.isdigit())):
+            continue
+        images.append(DockerfileImage(path, number, kind, written, resolved, texts, (index, *used)))
+    return images
 
 
 def expand_args(image: str, args: dict[str, str]) -> str | None:
@@ -1008,6 +1038,7 @@ def expand_args(image: str, args: dict[str, str]) -> str | None:
 FROM_LINE = re.compile(
     r"(?i)FROM\s+(?:--\S+\s+)*(?P<image>\S+)(?:\s+AS\s+(?P<stage>\S+))?\s*$"
 )
+COPY_FROM = re.compile(r"(?i)(?:COPY|ADD)\s+(?:--\S+\s+)*?--from=(?P<image>\S+)")
 
 
 # =============================================================================
