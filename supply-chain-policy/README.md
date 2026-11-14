@@ -103,9 +103,12 @@ tells the two apart: only the publisher's own build can sign as it.
 Dockerfile pulls (`FROM` and `COPY --from`) against
 [`base-images.toml`](base-images.toml):
 
-- **Signed** entries say how the publisher signs: a GitHub artifact
-  attestation (`gh attestation verify`) or a keyless cosign signature
-  (`cosign verify`), and whose. The image must verify, or the check fails.
+- **Signed** entries say how the publisher signs, and whose signature counts:
+  a GitHub artifact attestation (`gh attestation verify`), a keyless cosign
+  signature (`cosign verify`), or a Notary Project signature from a pinned
+  root certificate (`notation verify`, as Microsoft signs MCR images; the
+  roots live in [`trust/`](trust)). The image must verify, or the check
+  fails.
 - **Unsigned** entries are the ignore list: publishers that sign nothing we
   can verify, each with its reason. Docker Official Images (`node`, `python`,
   `golang`, `rust`, `debian`, ...) are here: they ship provenance, but

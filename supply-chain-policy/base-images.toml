@@ -15,6 +15,12 @@
 #                      registry instead of the GitHub API.
 #   method = "cosign"  `cosign verify` of a keyless signature. Set `issuer`
 #                      and `identity` (or `identity_regexp`).
+#   method = "notation" `notation verify` of a Notary Project signature. Set
+#                      `ca` (the root certificate, a PEM file under trust/),
+#                      `identity` (the signing certificate's subject) and,
+#                      when the publisher timestamps, `tsa` (the timestamping
+#                      root), so signatures stay valid after the signing
+#                      certificate expires.
 #
 # [[unsigned]]: the publisher signs nothing we can verify; the image is
 # allowed unverified. Say why in `reason`. Move an entry to [[signed]] as soon
@@ -25,6 +31,9 @@
 
 # --- signed --------------------------------------------------------------------
 
+# Includes the CI images under ghcr.io/archestra-ai/ci/, which the shared
+# image build in archestra-ai/archestra attests (archestra#10734). Digests
+# built before that carry no attestation: bump to a current one.
 [[signed]]
 repository = "ghcr.io/archestra-ai/*"
 method = "github"
@@ -55,18 +64,20 @@ method = "cosign"
 issuer = "https://accounts.google.com"
 identity = "keyless@distroless.iam.gserviceaccount.com"
 
-# --- unsigned ------------------------------------------------------------------
-
-# Built by CI for CI and Lobster runtimes; not attested yet. Remove this entry
-# once the image workflows run actions/attest-build-provenance, so the
-# ghcr.io/archestra-ai/* entry above applies.
-[[unsigned]]
-repository = "ghcr.io/archestra-ai/ci/*"
-reason = "archestra-ai CI images are not attested yet."
-
-[[unsigned]]
+# Microsoft signs MCR images with Notary Project signatures from its supply
+# chain root, timestamped by its Time-Stamp service. Both roots come from
+# Microsoft's PKI (microsoft.com/pkiops/certs and microsoft.com/pki/certs);
+# SHA-256 fingerprints:
+#   Supply Chain RSA Root CA 2022     23ffe2b8bdb9a1711515d4cffda04bc7f793d513c76c243f1020507d8669b7db
+#   Root Certificate Authority 2010   df545bf919a2439c36983b54cdfc903dfa4f37d3996d8d84b4c31eec6f3c163e
+[[signed]]
 repository = "mcr.microsoft.com/*"
-reason = "Microsoft signs MCR images with Notary Project signatures, which this check cannot verify yet."
+method = "notation"
+ca = "trust/microsoft-supply-chain-rsa-root-ca-2022.pem"
+tsa = "trust/microsoft-root-certificate-authority-2010.pem"
+identity = "CN=Microsoft SCD Products RSA Signing,O=Microsoft Corporation,L=Redmond,ST=Washington,C=US"
+
+# --- unsigned ------------------------------------------------------------------
 
 [[unsigned]]
 repository = "cr.kagent.dev/*"

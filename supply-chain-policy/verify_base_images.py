@@ -10,18 +10,22 @@ on the line, or on the `ARG` that names the image, allows one reference.
 With --base-ref, only references that are new since that commit are checked,
 so a pull request verifies what it introduces. Without it, every reference is.
 
-Needs Python 3.11+, git, `gh` (for method "github") and `cosign` (for method
-"cosign") on PATH; `gh` reads GH_TOKEN.
+Needs Python 3.11+, git, and on PATH the tool each method uses: `gh` (method
+"github"; reads GH_TOKEN), `cosign` ("cosign") or `notation` ("notation").
 """
 
 from __future__ import annotations
 
 import argparse
+import atexit
 import fnmatch
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from dataclasses import asdict, dataclass
@@ -158,13 +162,21 @@ def load_trust(path: Path) -> list[Rule]:
     for signed, key in ((True, "signed"), (False, "unsigned")):
         for entry in data.get(key, []):
             options = {k: v for k, v in entry.items() if k != "repository"}
-            if signed and options.get("method") not in ("github", "cosign"):
-                raise ValueError(f"{path}: {entry['repository']}: method must be github or cosign")
+            if signed and options.get("method") not in ("github", "cosign", "notation"):
+                raise ValueError(f"{path}: {entry['repository']}: method must be github, cosign or notation")
             if signed and options["method"] == "github" and not (options.get("owner") or options.get("repo")):
                 raise ValueError(f"{path}: {entry['repository']}: a github entry needs owner or repo")
             if signed and options["method"] == "cosign" and not (
                     options.get("issuer") and (options.get("identity") or options.get("identity_regexp"))):
                 raise ValueError(f"{path}: {entry['repository']}: a cosign entry needs issuer and identity")
+            if signed and options["method"] == "notation":
+                if not (options.get("ca") and options.get("identity")):
+                    raise ValueError(f"{path}: {entry['repository']}: a notation entry needs ca and identity")
+                for store in ("ca", "tsa"):
+                    if options.get(store):
+                        options[store] = str((path.parent / options[store]).resolve())
+                        if not Path(options[store]).is_file():
+                            raise ValueError(f"{path}: {entry['repository']}: {store} {options[store]} is missing")
             if not signed and not options.get("reason"):
                 raise ValueError(f"{path}: {entry['repository']}: an unsigned entry needs a reason")
             rules.append(Rule(entry["repository"], signed, options))
@@ -177,13 +189,15 @@ def load_trust(path: Path) -> list[Rule]:
 
 
 class Verifier:
-    """Runs gh or cosign once per reference, retrying failures."""
+    """Runs gh, cosign or notation once per reference, retrying failures."""
 
-    def __init__(self, run: Callable[[list[str]], subprocess.CompletedProcess] | None = None,
+    def __init__(self, run: Callable[..., subprocess.CompletedProcess] | None = None,
                  sleep: Callable[[float], None] = time.sleep):
-        self.run = run or (lambda command: subprocess.run(command, capture_output=True, text=True))
+        self.run = run or (lambda command, env=None: subprocess.run(command, capture_output=True, text=True,
+                                                                    env=env))
         self.sleep = sleep
         self.cache: dict[tuple[str, str], str | None] = {}
+        self.notation_homes: dict[str, str] = {}
 
     def verify(self, reference: str, rule: Rule) -> str | None:
         """None when it verifies, else the reason it does not."""
@@ -194,10 +208,11 @@ class Verifier:
 
     def _verify(self, reference: str, rule: Rule) -> str | None:
         command = verify_command(reference, rule.options)
+        env = self._notation_env(rule) if rule.options["method"] == "notation" else None
         error = None
         for delay in (*RETRY_DELAYS, None):
             try:
-                result = self.run(command)
+                result = self.run(command, env=env)
             except FileNotFoundError:
                 return f"`{command[0]}` is not installed"
             if result.returncode == 0:
@@ -207,6 +222,33 @@ class Verifier:
             if delay is not None:
                 self.sleep(delay)
         return error
+
+    def _notation_env(self, rule: Rule) -> dict:
+        """A private notation configuration for the rule: its trust stores and a
+        trust policy that accepts only its identity, in a temporary home so the
+        user's own notation setup plays no part."""
+        if rule.repository not in self.notation_homes:
+            home = Path(tempfile.mkdtemp(prefix="notation-"))
+            atexit.register(shutil.rmtree, home, ignore_errors=True)
+            config = (home / "Library" / "Application Support" / "notation" if sys.platform == "darwin"
+                      else home / ".config" / "notation")
+            stores = [("ca", "base-image")]
+            if rule.options.get("tsa"):
+                stores.append(("tsa", "base-image-tsa"))
+            for kind, name in stores:
+                store = config / "truststore" / "x509" / kind / name
+                store.mkdir(parents=True)
+                shutil.copyfile(rule.options[kind], store / Path(rule.options[kind]).name)
+            policy_document = {"version": "1.0", "trustPolicies": [{
+                "name": "base-image", "registryScopes": ["*"],
+                "signatureVerification": {"level": "strict"},
+                "trustStores": [f"{kind}:{name}" for kind, name in stores],
+                "trustedIdentities": [f"x509.subject: {rule.options['identity']}"],
+            }]}
+            (config / "trustpolicy.json").write_text(json.dumps(policy_document))
+            self.notation_homes[rule.repository] = str(home)
+        home = self.notation_homes[rule.repository]
+        return {**os.environ, "HOME": home, "XDG_CONFIG_HOME": f"{home}/.config"}
 
 
 def verify_command(reference: str, options: dict) -> list[str]:
@@ -218,6 +260,8 @@ def verify_command(reference: str, options: dict) -> list[str]:
         if options.get("bundle_from_oci"):
             command.append("--bundle-from-oci")
         return command
+    if options["method"] == "notation":
+        return ["notation", "verify", reference]
     command = ["cosign", "verify", reference, "--certificate-oidc-issuer", options["issuer"]]
     if options.get("identity"):
         command += ["--certificate-identity", options["identity"]]

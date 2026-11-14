@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,13 @@ method = "cosign"
 issuer = "https://accounts.google.com"
 identity = "keyless@distroless.iam.gserviceaccount.com"
 
+[[signed]]
+repository = "mcr.microsoft.com/*"
+method = "notation"
+ca = "root.pem"
+tsa = "tsa.pem"
+identity = "CN=Signer,O=Example"
+
 [[unsigned]]
 repository = "docker.io/library/*"
 reason = "official images are unsigned"
@@ -45,9 +53,11 @@ class FakeTools:
         self.good = set(good)
         self.flaky = flaky
         self.commands = []
+        self.envs = []
 
-    def __call__(self, command):
+    def __call__(self, command, env=None):
         self.commands.append(command)
+        self.envs.append(env)
         reference = command[3] if command[0] == "gh" else command[2]
         reference = reference.removeprefix("oci://")
         if self.flaky:
@@ -64,6 +74,8 @@ class VerifyBaseImagesTest(unittest.TestCase):
         self.root = Path(self.directory.name)
         trust = self.root / "trust.toml"
         trust.write_text(TRUST)
+        (self.root / "root.pem").write_text("root certificate")
+        (self.root / "tsa.pem").write_text("timestamping root")
         self.trust = verify.load_trust(trust)
         self.tools = FakeTools()
         self.sleeps = []
@@ -126,10 +138,29 @@ class VerifyBaseImagesTest(unittest.TestCase):
                                   (f"GHCR.io/Example/App{DIGEST}", "ghcr.io/example/app")]:
             self.assertEqual(verify.repository_of(written), expected, written)
 
+    def test_notation_trusts_only_the_listed_roots_and_signer(self):
+        reference = f"mcr.microsoft.com/dotnet/sdk:8.0{DIGEST}"
+        self.tools.good.add(reference)
+        results = self.check({"Dockerfile": f"FROM {reference}\nFROM mcr.microsoft.com/dotnet/aspnet:8.0{DIGEST}\n"})
+        self.assertEqual([r.status for r in results], ["verified", "failed"])
+        self.assertEqual(self.tools.commands[0], ["notation", "verify", reference])
+        # One private notation home for the entry, used by every image it covers.
+        homes = {env["HOME"] for env in self.tools.envs}
+        self.assertEqual(len(homes), 1)
+        config = next(Path(homes.pop()).rglob("trustpolicy.json")).parent
+        policy = json.loads((config / "trustpolicy.json").read_text())["trustPolicies"][0]
+        self.assertEqual(policy["signatureVerification"], {"level": "strict"})
+        self.assertEqual(policy["trustedIdentities"], ["x509.subject: CN=Signer,O=Example"])
+        self.assertEqual(policy["trustStores"], ["ca:base-image", "tsa:base-image-tsa"])
+        self.assertEqual((config / "truststore/x509/ca/base-image/root.pem").read_text(), "root certificate")
+        self.assertEqual((config / "truststore/x509/tsa/base-image-tsa/tsa.pem").read_text(), "timestamping root")
+
     def test_trust_entries_must_say_how_to_verify_or_why_not(self):
         for bad in ('[[signed]]\nrepository = "a/*"\nmethod = "github"\n',
                     '[[signed]]\nrepository = "a/*"\nmethod = "cosign"\nissuer = "x"\n',
                     '[[signed]]\nrepository = "a/*"\nmethod = "notary"\n',
+                    '[[signed]]\nrepository = "a/*"\nmethod = "notation"\nidentity = "CN=x"\n',
+                    '[[signed]]\nrepository = "a/*"\nmethod = "notation"\nca = "absent.pem"\nidentity = "CN=x"\n',
                     '[[unsigned]]\nrepository = "a/*"\n'):
             path = self.root / "bad.toml"
             path.write_text(bad)
