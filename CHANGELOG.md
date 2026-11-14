@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.26.0](https://github.com/archestra-ai/.github/compare/v1.25.2...v1.26.0) (2026-11-14)
+
+
+### Features
+
+* **supply-chain-policy:** verify the signatures of the images Dockerfiles build on ([#82](https://github.com/archestra-ai/.github/issues/82)) ([e398326](https://github.com/archestra-ai/.github/commit/e3983263b29f9fec0741112e10822a5859b50287))
+
+
+### Dependencies
+
+* bump the github-actions-dependencies group across 3 directories with 5 updates ([#80](https://github.com/archestra-ai/.github/issues/80)) ([3997965](https://github.com/archestra-ai/.github/commit/3997965ffcf49cd3ffa8c74aed5ec419f03243f4))
+
 ## [1.25.2](https://github.com/archestra-ai/.github/compare/v1.25.1...v1.25.2) (2026-11-12)
 
 
