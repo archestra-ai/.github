@@ -38,6 +38,37 @@ jobs:
       - name: Test PR title rules
         run: node --test actions/lint-pr-title/commitlint.config.test.mjs
 
+  # Builds the SBOM and runs the secret scan for a real image, without signing:
+  # a pull request here must not attest an image it did not build.
+  attest-release-image:
+    name: Attest release image (dry run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Scan a public image
+        id: scan
+        uses: $/actions/attest-release-image
+        with:
+          image: gcr.io/distroless/static@sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931
+          subject-name: gcr.io/distroless/static
+          attest: "false"
+      - name: Check the outputs
+        env:
+          SBOM: ${{ steps.scan.outputs.sbom-path }}
+          CYCLONEDX: ${{ steps.scan.outputs.cyclonedx-path }}
+          SECRETS: ${{ steps.scan.outputs.secret-scan-path }}
+        run: |
+          set -euo pipefail
+          jq -e '.spdxVersion == "SPDX-2.3" and (.packages | length) > 0' "$SBOM"
+          jq -e '.bomFormat == "CycloneDX" and (.components | length) > 0' "$CYCLONEDX"
+          jq -e '.result.verified == 0 and .scanner.version != ""' "$SECRETS"
+
   base-image-signatures:
     # The supply-chain policy's base-image check against real registries and
     # the GitHub attestations API, with the job token, as in the policy job.
