@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.30.0](https://github.com/archestra-ai/.github/compare/v1.29.0...v1.30.0) (2026-11-15)
+
+
+### Features
+
+* **release-finalize:** reusable workflow that publishes a handed-off release ([#90](https://github.com/archestra-ai/.github/issues/90)) ([b166d05](https://github.com/archestra-ai/.github/commit/b166d05ce0b9c9ff8509a63eeea9515ca38b3e76))
+
 ## [1.29.0](https://github.com/archestra-ai/.github/compare/v1.28.0...v1.29.0) (2026-11-15)
 
 
