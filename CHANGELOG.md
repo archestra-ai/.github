@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.29.0](https://github.com/archestra-ai/.github/compare/v1.28.0...v1.29.0) (2026-11-15)
+
+
+### Features
+
+* **actions:** release-finalize finishes a release handed off to release-publisher ([#88](https://github.com/archestra-ai/.github/issues/88)) ([888426f](https://github.com/archestra-ai/.github/commit/888426ff57a4c2c927a43f87e16bf45760e08a58))
+
 ## [1.28.0](https://github.com/archestra-ai/.github/compare/v1.27.0...v1.28.0) (2026-11-15)
 
 
