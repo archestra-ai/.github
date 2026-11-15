@@ -154,7 +154,7 @@ jobs:
     steps:
       - name: Generate a publisher token
         id: publisher-token
-        uses: archestra-ai/.github/actions/github-app-token@ACTIONS_SHA # ACTIONS_VERSION
+        uses: archestra-ai/.github/actions/github-app-token@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
         with:
           owner: archestra-ai
           repositories: release-publisher
@@ -163,7 +163,7 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: Dispatch the approved releases
-        uses: archestra-ai/.github/actions/release-finalize@ACTIONS_SHA # ACTIONS_VERSION
+        uses: archestra-ai/.github/actions/release-finalize@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
         with:
           operation: sweep
           token: ${{ github.token }}
@@ -201,7 +201,7 @@ jobs:
     steps:
       - name: Read the release run's request
         id: request
-        uses: archestra-ai/.github/actions/release-finalize@ACTIONS_SHA # ACTIONS_VERSION
+        uses: archestra-ai/.github/actions/release-finalize@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
         with:
           operation: request
           token: ${{ github.token }}
@@ -214,7 +214,7 @@ jobs:
       - name: Generate a publisher token
         id: publisher-token
         if: ${{ steps.request.outputs.publish == 'true' }}
-        uses: archestra-ai/.github/actions/github-app-token@ACTIONS_SHA # ACTIONS_VERSION
+        uses: archestra-ai/.github/actions/github-app-token@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
         with:
           owner: archestra-ai
           repositories: release-publisher
@@ -227,7 +227,7 @@ jobs:
       - name: Verify the publication
         id: verify
         if: ${{ steps.request.outputs.publish == 'true' }}
-        uses: archestra-ai/.github/actions/release-publish-verify@ACTIONS_SHA # ACTIONS_VERSION
+        uses: archestra-ai/.github/actions/release-publish-verify@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
         with:
           token: ${{ steps.publisher-token.outputs.token }}
           attestation-token: ${{ github.token }}
@@ -287,7 +287,7 @@ jobs:
       - name: Publish GitHub release
         id: publish
         if: ${{ steps.request.outputs.publish == 'true' && inputs.upload }}
-        uses: archestra-ai/.github/actions/release-finalize@ACTIONS_SHA # ACTIONS_VERSION
+        uses: archestra-ai/.github/actions/release-finalize@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
         with:
           operation: publish
           token: ${{ github.token }}
