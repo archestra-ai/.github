@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.28.0](https://github.com/archestra-ai/.github/compare/v1.27.0...v1.28.0) (2026-11-15)
+
+
+### Features
+
+* **release-publish:** attest each image's SBOMs and secret scan before the publish request ([#86](https://github.com/archestra-ai/.github/issues/86)) ([45d97ea](https://github.com/archestra-ai/.github/commit/45d97ea3fba33d86801ae628b20206ef262cb810))
+
 ## [1.27.0](https://github.com/archestra-ai/.github/compare/v1.26.0...v1.27.0) (2026-11-15)
 
 
