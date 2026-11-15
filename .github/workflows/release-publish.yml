@@ -4,9 +4,16 @@
 # runs). Callers wait here, so the 360-minute
 # limit (the longest a GitHub-hosted job may run) is set once.
 #
-# - Attest in the caller's own job, before this one. An attestation names the
-#   workflow file that ran its step, and the publisher accepts only the
-#   project's release workflow, never this file.
+# - Attest build provenance in the caller's own job, before this one. An
+#   attestation names the workflow file that ran its step, and the publisher
+#   accepts provenance only from the project's release workflow, never this
+#   file.
+# - What each image contains is attested here (the attest-contents job,
+#   actions/attest-release-image): SPDX and CycloneDX SBOMs and a secret scan,
+#   signed by this workflow, which the publisher accepts for those types only.
+#   A secret verified as live stops the release before the request is sent.
+#   The caller's job grants `id-token: write`, `attestations: write` and
+#   `packages: read` (to pull the staged images); dry runs skip it.
 # - The request names this run attempt (`<run>-<attempt>`). The publisher
 #   accepts an attestation from this attempt or an earlier attempt of the same
 #   run, so "Re-run failed jobs" re-runs this wait without the attest job.
@@ -47,6 +54,9 @@
 #       needs: attest
 #       permissions:
 #         actions: read # download this run's chart and asset artifacts
+#         id-token: write # sign the image contents attestations
+#         attestations: write # store them
+#         packages: read # pull the staged images to scan them
 #       uses: archestra-ai/.github/.github/workflows/release-publish.yml@<sha> # vX.Y.Z
 #       with:
 #         environment: releaser
@@ -109,6 +119,10 @@ on:
         description: The publisher repository.
         type: string
         default: archestra-ai/release-publisher
+      staging:
+        description: Registry path the staged images are pulled from, as `<staging>/<image>@<digest>` (the publisher project's `staging`).
+        type: string
+        default: ghcr.io/archestra-ai/ci
       wait:
         description: >-
           Wait for the publisher run (approval included), up to 360 minutes.
@@ -134,8 +148,60 @@ on:
 permissions: {}
 
 jobs:
+  # One matrix entry per image: {"name": public name, "image": staged reference}.
+  contents-plan:
+    name: Plan image contents attestations
+    if: ${{ !inputs.smoke }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      images: ${{ steps.plan.outputs.images }}
+    steps:
+      - name: List the images
+        id: plan
+        env:
+          IMAGES: ${{ inputs.images }}
+          STAGING: ${{ inputs.staging }}
+        run: |
+          set -euo pipefail
+          [[ "$STAGING" =~ ^ghcr\.io/archestra-ai/[a-z0-9._/-]+$ ]] || { echo "::error::Unexpected staging: $STAGING"; exit 1; }
+          images=$(jq -c --arg staging "$STAGING" '[to_entries[]
+            | {name: .key, image: ($staging + "/" + (.key | split("/") | last) + "@" + .value)}]' <<<"$IMAGES")
+          jq -e 'length > 0 and all(.[]; .image | test("@sha256:[0-9a-f]{64}$"))' <<<"$images" > /dev/null \
+            || { echo "::error::images must map public names to sha256 digests"; exit 1; }
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+
+  attest-contents:
+    name: Attest contents of ${{ matrix.image.name }}
+    needs: contents-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write # sign the attestations
+      attestations: write # store them
+      packages: read # pull the staged image
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.contents-plan.outputs.images) }}
+    steps:
+      - name: Log in to the staging registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Attest the image contents
+        uses: archestra-ai/.github/actions/attest-release-image@bf618cccb21049136339ae43eae9767d534f45d6 # v1.27.0
+        with:
+          image: ${{ matrix.image.image }}
+          subject-name: ${{ matrix.image.name }}
+
   publish:
     name: Publish through release-publisher
+    needs: attest-contents
+    # Dry runs skip the contents attestations.
+    if: ${{ !cancelled() && (needs.attest-contents.result == 'success' || (inputs.smoke && needs.attest-contents.result == 'skipped')) }}
     runs-on: ubuntu-latest
     # A release (not a dry run) waits in the publisher for an approver who
     # did not merge it; a waiting job waits with it, up to the longest a
