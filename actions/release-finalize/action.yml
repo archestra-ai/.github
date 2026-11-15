@@ -1,0 +1,103 @@
+name: Finalize a handed-off release
+description: >-
+  Find a release request that release-publish.yml handed off (`wait: false`),
+  sweep for approved draft releases, or upload a release's files and publish
+  it. Run release-publish-verify between `request` and `publish`.
+inputs:
+  operation:
+    description: "`request`, `sweep` or `publish`."
+    required: true
+  token:
+    description: Token for this repository (the job's GITHUB_TOKEN). `request` needs Actions read; `sweep` Actions write and Contents read; `publish` Contents write.
+    required: true
+  project:
+    description: The release-publisher project name (for example openappa).
+    required: true
+  release-workflow:
+    description: The workflow file that sends the request, `.github/workflows/<file>`.
+    required: true
+  requester:
+    description: The release App bot login that dispatches the project's requests.
+    default: archestra-releaser[bot]
+  release-branches:
+    description: Regular expression of the branches a release comes from.
+    default: main
+  tag-template:
+    description: The release tag, with `{version}` (for example `v{version}`).
+    default: v{version}
+  publisher-repository:
+    description: The publisher repository.
+    default: archestra-ai/release-publisher
+  request-id:
+    description: "`request`: `<release run id>-<attempt>`."
+    default: ""
+  publisher-token:
+    description: "`sweep`: a token with Actions read on the publisher repository."
+    default: ""
+  finalize-workflow:
+    description: "`sweep`: the finalize workflow file to dispatch, for example release-finalize.yml."
+    default: ""
+  tag-name:
+    description: "`publish`: the release tag (`request`'s tag-name output)."
+    default: ""
+  version:
+    description: "`publish`: the version (`request`'s version output)."
+    default: ""
+  request-file:
+    description: "`publish`: the request (`request`'s request-file output)."
+    default: ""
+  files:
+    description: "`publish`: newline-separated files to upload. A file the request names must match its sha256."
+    default: ""
+  latest:
+    description: "`publish`: `false` keeps a stable release from becoming the repository's latest. Prereleases never do."
+    default: "true"
+outputs:
+  publish:
+    description: "`request`: `true` while the release is still a draft."
+    value: ${{ steps.run.outputs.publish }}
+  run-id:
+    description: "`request`: the release run."
+    value: ${{ steps.run.outputs.run-id }}
+  version:
+    description: "`request`: the requested version."
+    value: ${{ steps.run.outputs.version }}
+  tag-name:
+    description: "`request`: the release tag."
+    value: ${{ steps.run.outputs.tag-name }}
+  request-file:
+    description: "`request`: the kept request."
+    value: ${{ steps.run.outputs.request-file }}
+  published:
+    description: "`publish`: `true` when this run published the release."
+    value: ${{ steps.run.outputs.published }}
+runs:
+  using: composite
+  steps:
+    - name: Finalize
+      id: run
+      shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        FINALIZE_PROJECT: ${{ inputs.project }}
+        FINALIZE_RELEASE_WORKFLOW: ${{ inputs.release-workflow }}
+        FINALIZE_REQUESTER: ${{ inputs.requester }}
+        FINALIZE_RELEASE_BRANCHES: ${{ inputs.release-branches }}
+        FINALIZE_TAG_TEMPLATE: ${{ inputs.tag-template }}
+        FINALIZE_PUBLISHER_REPOSITORY: ${{ inputs.publisher-repository }}
+        FINALIZE_REQUEST_ID: ${{ inputs.request-id }}
+        FINALIZE_BRANCH: ${{ github.ref_name }}
+        FINALIZE_REQUEST_DIR: ${{ runner.temp }}/release-request
+        FINALIZE_PUBLISHER_TOKEN: ${{ inputs.publisher-token }}
+        FINALIZE_WORKFLOW: ${{ inputs.finalize-workflow }}
+        FINALIZE_TAG_NAME: ${{ inputs.tag-name }}
+        FINALIZE_VERSION: ${{ inputs.version }}
+        FINALIZE_REQUEST_FILE: ${{ inputs.request-file }}
+        FINALIZE_FILES: ${{ inputs.files }}
+        FINALIZE_LATEST: ${{ inputs.latest }}
+        FINALIZE_SCRIPT: ${{ github.action_path }}/finalize.py
+      run: |
+        case "$OPERATION" in request|sweep|publish) ;; *) echo "::error::operation must be request, sweep or publish"; exit 1 ;; esac
+        python3 -I "$FINALIZE_SCRIPT" "$OPERATION"
