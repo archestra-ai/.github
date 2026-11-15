@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.27.0](https://github.com/archestra-ai/.github/compare/v1.26.0...v1.27.0) (2026-11-15)
+
+
+### Features
+
+* **actions:** attest-release-image signs SBOMs, a secret scan and a vulnerability scan for a release image ([#83](https://github.com/archestra-ai/.github/issues/83)) ([844e53f](https://github.com/archestra-ai/.github/commit/844e53fb105b532ce06735f2a51f049b2b4a7eff))
+
+
+### CI/CD
+
+* run every Python test with one command ([#84](https://github.com/archestra-ai/.github/issues/84)) ([686b269](https://github.com/archestra-ai/.github/commit/686b26971f49bf55d875bb72de0c13d939893834))
+
 ## [1.26.0](https://github.com/archestra-ai/.github/compare/v1.25.2...v1.26.0) (2026-11-14)
 
 
