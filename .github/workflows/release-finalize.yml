@@ -50,6 +50,11 @@
 #
 # Jobs that run after publication (`needs: finalize`, `if:
 # needs.finalize.outputs.published == 'true'`) stay in the caller.
+#
+# `upload: false` stops after the checks, for a caller whose own job uploads
+# the files and publishes the release (a Terraform provider checks the
+# publisher's signature first): it gets `publish`, `run-id`, `version`,
+# `tag-name` and `publisher-run-id`, and `published` stays `false`.
 name: Finalize a handed-off release
 
 on:
@@ -103,15 +108,28 @@ on:
         description: "`false` keeps a stable release from becoming the repository's latest."
         type: boolean
         default: true
+      upload:
+        description: "`false` checks the request and the publication only; the caller uploads and publishes."
+        type: boolean
+        default: true
     secrets:
       APP_ID:
         required: true
       APP_PRIVATE_KEY:
         required: true
     outputs:
+      publish:
+        description: "`true` when the request's release was still a draft and its publication checked out."
+        value: ${{ jobs.finalize.outputs.publish }}
       published:
         description: "`true` when this run published the release."
         value: ${{ jobs.finalize.outputs.published }}
+      run-id:
+        description: The release run that handed off the request.
+        value: ${{ jobs.finalize.outputs.run-id }}
+      publisher-run-id:
+        description: The publisher run that published it.
+        value: ${{ jobs.finalize.outputs.publisher-run-id }}
       version:
         description: The published version.
         value: ${{ jobs.finalize.outputs.version }}
@@ -174,7 +192,10 @@ jobs:
       actions: read # Read the release run, its request and its artifacts.
       attestations: read # Verify the published digests' attestations.
     outputs:
+      publish: ${{ steps.verify.outcome == 'success' && 'true' || 'false' }}
       published: ${{ steps.publish.outputs.published || 'false' }}
+      run-id: ${{ steps.request.outputs.run-id }}
+      publisher-run-id: ${{ steps.publisher-run.outputs.id }}
       version: ${{ steps.request.outputs.version }}
       tag-name: ${{ steps.request.outputs.tag-name }}
     steps:
@@ -217,15 +238,28 @@ jobs:
           image-tag: ${{ inputs.image-tag }}
           chart-repositories: ${{ inputs.chart-repositories }}
 
+      - name: Name the publisher run
+        id: publisher-run
+        if: ${{ steps.request.outputs.publish == 'true' }}
+        env:
+          RUN_URL: ${{ steps.verify.outputs.run-url }}
+        run: |
+          set -euo pipefail
+          id=${RUN_URL##*/runs/}
+          id=${id%%/*}
+          [[ "$RUN_URL" == https://github.com/archestra-ai/release-publisher/actions/runs/* && "$id" =~ ^[0-9]+$ ]] \
+            || { echo "::error::Unexpected publisher run URL: $RUN_URL"; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
       - name: Download the release files
         id: files
-        if: ${{ steps.request.outputs.publish == 'true' }}
+        if: ${{ steps.request.outputs.publish == 'true' && inputs.upload }}
         env:
           GH_TOKEN: ${{ github.token }}
           PUBLISHER_TOKEN: ${{ steps.publisher-token.outputs.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ steps.request.outputs.run-id }}
-          RUN_URL: ${{ steps.verify.outputs.run-url }}
+          PUBLISHER_RUN_ID: ${{ steps.publisher-run.outputs.id }}
           RELEASE_ARTIFACTS: ${{ inputs.release-artifacts }}
           RETURN_ARTIFACT: ${{ inputs.return-artifact }}
           FILES_DIR: ${{ runner.temp }}/release-files
@@ -237,10 +271,7 @@ jobs:
             gh run download "$RUN_ID" --repo "$REPOSITORY" --name "$artifact" --dir "$FILES_DIR/release/$artifact"
           done <<< "$RELEASE_ARTIFACTS"
           if [ -n "$RETURN_ARTIFACT" ]; then
-            publisher_run=${RUN_URL##*/runs/}
-            publisher_run=${publisher_run%%/*}
-            [[ "$publisher_run" =~ ^[0-9]+$ ]] || { echo "::error::Unexpected publisher run URL: $RUN_URL"; exit 1; }
-            GH_TOKEN="$PUBLISHER_TOKEN" gh run download "$publisher_run" --repo archestra-ai/release-publisher \
+            GH_TOKEN="$PUBLISHER_TOKEN" gh run download "$PUBLISHER_RUN_ID" --repo archestra-ai/release-publisher \
               --name "$RETURN_ARTIFACT" --dir "$FILES_DIR/returned"
           fi
           # One release can hold only one file of a name.
@@ -255,7 +286,7 @@ jobs:
 
       - name: Publish GitHub release
         id: publish
-        if: ${{ steps.request.outputs.publish == 'true' }}
+        if: ${{ steps.request.outputs.publish == 'true' && inputs.upload }}
         uses: archestra-ai/.github/actions/release-finalize@ACTIONS_SHA # ACTIONS_VERSION
         with:
           operation: publish
