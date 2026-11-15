@@ -1,0 +1,172 @@
+name: Attest a release image
+description: >-
+  Sign SBOMs (SPDX and CycloneDX), a secret scan and (when given) a vulnerability scan for one
+  release image, under its public name. A live secret in the image stops the
+  job before anything is attested.
+inputs:
+  image:
+    description: Where to pull the image from, pinned by digest (for example ghcr.io/archestra-ai/ci/platform@sha256:...). Log in to its registry first.
+    required: true
+  subject-name:
+    description: The image's public name, without tag or digest (for example docker.io/archestra/platform). The attestations are made for this name and the image's digest.
+    required: true
+  platform:
+    description: The platform whose packages the SBOM lists, for a multi-platform image.
+    default: linux/amd64
+  vulnerability-report:
+    description: Path to the JSON report of the vulnerability scan already run on this digest. Empty skips the vulnerability attestation.
+    default: ""
+  vulnerability-scanner-uri:
+    description: The scanner that wrote vulnerability-report (for example https://github.com/docker/scout-cli).
+    default: ""
+  vulnerability-scanner-version:
+    description: The scanner's version.
+    default: ""
+  on-verified-secret:
+    description: "`fail` (default): a secret trufflehog verifies as live stops the job, unattested. `record`: attest the counts and continue."
+    default: fail
+  attest:
+    description: "`false` builds the SBOM and runs the scans without signing anything (for tests)."
+    default: "true"
+outputs:
+  sbom-path:
+    description: The SPDX JSON SBOM.
+    value: ${{ steps.paths.outputs.sbom }}
+  cyclonedx-path:
+    description: The CycloneDX JSON SBOM.
+    value: ${{ steps.paths.outputs.cyclonedx }}
+  secret-scan-path:
+    description: The secret scan predicate.
+    value: ${{ steps.paths.outputs.secrets }}
+runs:
+  using: composite
+  steps:
+    - name: Prepare
+      id: paths
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        SUBJECT_NAME: ${{ inputs.subject-name }}
+        ON_VERIFIED: ${{ inputs.on-verified-secret }}
+        REPORT: ${{ inputs.vulnerability-report }}
+        SCANNER_URI: ${{ inputs.vulnerability-scanner-uri }}
+        SCANNER_VERSION: ${{ inputs.vulnerability-scanner-version }}
+        PREDICATES: ${{ github.action_path }}/predicates.py
+      run: |
+        set -euo pipefail
+        case "$ON_VERIFIED" in fail|record) ;; *) echo "::error::on-verified-secret must be fail or record"; exit 1 ;; esac
+        if [ -n "$REPORT" ] && { [ -z "$SCANNER_URI" ] || [ -z "$SCANNER_VERSION" ]; }; then
+          echo "::error::vulnerability-report needs vulnerability-scanner-uri and vulnerability-scanner-version"; exit 1
+        fi
+        work=$(mktemp -d "$RUNNER_TEMP/attest-release-image.XXXXXX")
+        python3 -I "$PREDICATES" subjects "$IMAGE" "$SUBJECT_NAME" "$work/subjects.txt"
+        {
+          echo "work=$work"
+          echo "bin=$work/bin"
+          echo "subjects=$work/subjects.txt"
+          echo "sbom=$work/sbom.spdx.json"
+          echo "cyclonedx=$work/sbom.cdx.json"
+          echo "secrets=$work/secret-scan.json"
+          echo "vulnerabilities=$work/vulnerabilities.json"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Install syft and trufflehog
+      id: tools
+      shell: bash
+      env:
+        BIN: ${{ steps.paths.outputs.bin }}
+        INSTALL: ${{ github.action_path }}/install-tools.sh
+      run: bash "$INSTALL" "$BIN"
+
+    - name: Build the SBOMs
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        PLATFORM: ${{ inputs.platform }}
+        SYFT: ${{ steps.paths.outputs.bin }}/syft
+        SBOM: ${{ steps.paths.outputs.sbom }}
+        CYCLONEDX: ${{ steps.paths.outputs.cyclonedx }}
+        SYFT_CHECK_FOR_APP_UPDATE: "false"
+      run: |
+        set -euo pipefail
+        # One scan, both formats: they list the same packages.
+        "$SYFT" scan "registry:$IMAGE" --platform "$PLATFORM" --quiet \
+          --output "spdx-json=$SBOM" --output "cyclonedx-json=$CYCLONEDX"
+        echo "SBOM of $IMAGE ($PLATFORM): $(jq '.packages | length' "$SBOM") packages"
+        for file in "$SBOM" "$CYCLONEDX"; do
+          echo "  $(basename "$file"): $(stat -c %s "$file") bytes"
+          # actions/attest refuses a predicate over 16 MiB; say so here instead.
+          [ "$(stat -c %s "$file")" -lt 16777216 ] || { echo "::error::$(basename "$file") of $IMAGE is over 16 MiB, too large to attest"; exit 1; }
+        done
+
+    - name: Scan for secrets
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        TRUFFLEHOG: ${{ steps.paths.outputs.bin }}/trufflehog
+        VERSION: ${{ steps.tools.outputs.trufflehog-version }}
+        WORK: ${{ steps.paths.outputs.work }}
+        PREDICATE: ${{ steps.paths.outputs.secrets }}
+        ON_VERIFIED: ${{ inputs.on-verified-secret }}
+        PREDICATES: ${{ github.action_path }}/predicates.py
+      run: |
+        set -euo pipefail
+        started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        # Findings go to a file the runner never prints: only counts and
+        # detector names leave this step.
+        "$TRUFFLEHOG" docker --image "$IMAGE" --json --no-update > "$WORK/findings.jsonl" 2> "$WORK/trufflehog.log" \
+          || { tail -n 20 "$WORK/trufflehog.log"; echo "::error::trufflehog could not scan $IMAGE"; exit 1; }
+        finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        status=0
+        python3 -I "$PREDICATES" secrets "$WORK/findings.jsonl" "$PREDICATE" --image "$IMAGE" \
+          --version "$VERSION" --started "$started" --finished "$finished" --on-verified "$ON_VERIFIED" || status=$?
+        rm -f "$WORK/findings.jsonl"
+        exit "$status"
+
+    - name: Wrap the vulnerability report
+      if: ${{ inputs.vulnerability-report != '' }}
+      shell: bash
+      env:
+        REPORT: ${{ inputs.vulnerability-report }}
+        PREDICATE: ${{ steps.paths.outputs.vulnerabilities }}
+        SCANNER_URI: ${{ inputs.vulnerability-scanner-uri }}
+        SCANNER_VERSION: ${{ inputs.vulnerability-scanner-version }}
+        PREDICATES: ${{ github.action_path }}/predicates.py
+      run: |
+        set -euo pipefail
+        # The report's own times are not standard; the file's age bounds the scan.
+        finished=$(date -u -r "$REPORT" +%Y-%m-%dT%H:%M:%SZ)
+        python3 -I "$PREDICATES" vulnerabilities "$REPORT" "$PREDICATE" \
+          --scanner-uri "$SCANNER_URI" --scanner-version "$SCANNER_VERSION" --started "$finished" --finished "$finished"
+
+    - name: Attest the SPDX SBOM
+      if: ${{ inputs.attest == 'true' }}
+      uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      with:
+        subject-checksums: ${{ steps.paths.outputs.subjects }}
+        predicate-type: https://spdx.dev/Document/v2.3
+        predicate-path: ${{ steps.paths.outputs.sbom }}
+
+    - name: Attest the CycloneDX SBOM
+      if: ${{ inputs.attest == 'true' }}
+      uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      with:
+        subject-checksums: ${{ steps.paths.outputs.subjects }}
+        predicate-type: https://cyclonedx.org/bom
+        predicate-path: ${{ steps.paths.outputs.cyclonedx }}
+
+    - name: Attest the secret scan
+      if: ${{ inputs.attest == 'true' }}
+      uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      with:
+        subject-checksums: ${{ steps.paths.outputs.subjects }}
+        predicate-type: https://archestra.ai/attestations/secret-scan/v1
+        predicate-path: ${{ steps.paths.outputs.secrets }}
+
+    - name: Attest the vulnerability scan
+      if: ${{ inputs.attest == 'true' && inputs.vulnerability-report != '' }}
+      uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      with:
+        subject-checksums: ${{ steps.paths.outputs.subjects }}
+        predicate-type: https://cosign.sigstore.dev/attestation/vuln/v1
+        predicate-path: ${{ steps.paths.outputs.vulnerabilities }}
