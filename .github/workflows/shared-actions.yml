@@ -74,10 +74,12 @@ jobs:
       - name: Check the outputs
         env:
           SBOM: ${{ steps.scan.outputs.sbom-path }}
+          CYCLONEDX: ${{ steps.scan.outputs.cyclonedx-path }}
           SECRETS: ${{ steps.scan.outputs.secret-scan-path }}
         run: |
           set -euo pipefail
           jq -e '.spdxVersion == "SPDX-2.3" and (.packages | length) > 0' "$SBOM"
+          jq -e '.bomFormat == "CycloneDX" and (.components | length) > 0' "$CYCLONEDX"
           jq -e '.result.verified == 0 and .scanner.version != ""' "$SECRETS"
 
   base-image-signatures:

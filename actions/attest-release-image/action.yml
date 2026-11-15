@@ -1,6 +1,6 @@
 name: Attest a release image
 description: >-
-  Sign an SBOM, a secret scan and (when given) a vulnerability scan for one
+  Sign SBOMs (SPDX and CycloneDX), a secret scan and (when given) a vulnerability scan for one
   release image, under its public name. A live secret in the image stops the
   job before anything is attested.
 inputs:
@@ -32,6 +32,9 @@ outputs:
   sbom-path:
     description: The SPDX JSON SBOM.
     value: ${{ steps.paths.outputs.sbom }}
+  cyclonedx-path:
+    description: The CycloneDX JSON SBOM.
+    value: ${{ steps.paths.outputs.cyclonedx }}
   secret-scan-path:
     description: The secret scan predicate.
     value: ${{ steps.paths.outputs.secrets }}
@@ -62,6 +65,7 @@ runs:
           echo "bin=$work/bin"
           echo "subjects=$work/subjects.txt"
           echo "sbom=$work/sbom.spdx.json"
+          echo "cyclonedx=$work/sbom.cdx.json"
           echo "secrets=$work/secret-scan.json"
           echo "vulnerabilities=$work/vulnerabilities.json"
         } >> "$GITHUB_OUTPUT"
@@ -74,20 +78,26 @@ runs:
         INSTALL: ${{ github.action_path }}/install-tools.sh
       run: bash "$INSTALL" "$BIN"
 
-    - name: Build the SBOM
+    - name: Build the SBOMs
       shell: bash
       env:
         IMAGE: ${{ inputs.image }}
         PLATFORM: ${{ inputs.platform }}
         SYFT: ${{ steps.paths.outputs.bin }}/syft
         SBOM: ${{ steps.paths.outputs.sbom }}
+        CYCLONEDX: ${{ steps.paths.outputs.cyclonedx }}
         SYFT_CHECK_FOR_APP_UPDATE: "false"
       run: |
         set -euo pipefail
-        "$SYFT" scan "registry:$IMAGE" --platform "$PLATFORM" --quiet --output "spdx-json=$SBOM"
-        echo "SBOM of $IMAGE ($PLATFORM): $(jq '.packages | length' "$SBOM") packages, $(stat -c %s "$SBOM") bytes"
-        # actions/attest refuses a predicate over 16 MiB; say so here instead.
-        [ "$(stat -c %s "$SBOM")" -lt 16777216 ] || { echo "::error::The SBOM of $IMAGE is over 16 MiB, too large to attest"; exit 1; }
+        # One scan, both formats: they list the same packages.
+        "$SYFT" scan "registry:$IMAGE" --platform "$PLATFORM" --quiet \
+          --output "spdx-json=$SBOM" --output "cyclonedx-json=$CYCLONEDX"
+        echo "SBOM of $IMAGE ($PLATFORM): $(jq '.packages | length' "$SBOM") packages"
+        for file in "$SBOM" "$CYCLONEDX"; do
+          echo "  $(basename "$file"): $(stat -c %s "$file") bytes"
+          # actions/attest refuses a predicate over 16 MiB; say so here instead.
+          [ "$(stat -c %s "$file")" -lt 16777216 ] || { echo "::error::$(basename "$file") of $IMAGE is over 16 MiB, too large to attest"; exit 1; }
+        done
 
     - name: Scan for secrets
       shell: bash
@@ -129,13 +139,21 @@ runs:
         python3 -I "$PREDICATES" vulnerabilities "$REPORT" "$PREDICATE" \
           --scanner-uri "$SCANNER_URI" --scanner-version "$SCANNER_VERSION" --started "$finished" --finished "$finished"
 
-    - name: Attest the SBOM
+    - name: Attest the SPDX SBOM
       if: ${{ inputs.attest == 'true' }}
       uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
       with:
         subject-checksums: ${{ steps.paths.outputs.subjects }}
         predicate-type: https://spdx.dev/Document/v2.3
         predicate-path: ${{ steps.paths.outputs.sbom }}
+
+    - name: Attest the CycloneDX SBOM
+      if: ${{ inputs.attest == 'true' }}
+      uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      with:
+        subject-checksums: ${{ steps.paths.outputs.subjects }}
+        predicate-type: https://cyclonedx.org/bom
+        predicate-path: ${{ steps.paths.outputs.cyclonedx }}
 
     - name: Attest the secret scan
       if: ${{ inputs.attest == 'true' }}
