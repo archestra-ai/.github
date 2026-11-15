@@ -267,7 +267,7 @@ this repository:
 
 ```sh
 python3 supply-chain-policy/check_supply_chain_policy.py /path/to/repository
-python3 -m unittest discover -s supply-chain-policy -p 'test_*.py'
+python3 tests/run_python_tests.py supply-chain-policy
 ```
 
 `--json` prints the findings as JSON. The exit status is 1 when any rule fails.
