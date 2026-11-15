@@ -1,0 +1,302 @@
+# Publishes the GitHub release of a request that release-publish.yml handed
+# off (`wait: false`), once its publisher run has succeeded. The release run
+# ends right after the hand-off, so a release can wait for its approval in the
+# publisher for up to 30 days instead of a job's 360 minutes.
+#
+# Two things start the caller's finalize workflow, and neither is trusted:
+#
+# - Release Gate (infra gcp/cloud-run/release-gate, the source's
+#   `finalize_workflow`) dispatches it with `request_id` on the release run's
+#   branch when that request's publisher run succeeds.
+# - Its schedule runs this with no `request-id`: the sweep dispatches it for
+#   each draft release whose newest publisher run succeeded, in case Release
+#   Gate missed one.
+#
+# The finalize job reads the request from the caller's own release run, checks
+# the publisher run and every public name (release-publish-verify), downloads
+# the release files (artifacts of the release run, and what the publisher run
+# returned), checks each file the request names against its sha256, and only
+# then uploads them and publishes the draft. A published release is left alone.
+#
+# Usage, in the caller's `.github/workflows/release-finalize.yml`:
+#
+#   on:
+#     workflow_dispatch:
+#       inputs:
+#         request_id:
+#           description: "<release run id>-<attempt> whose publisher run succeeded"
+#           type: string
+#           required: true
+#     schedule:
+#       - cron: "17,47 * * * *"
+#   permissions: {}
+#   jobs:
+#     finalize:
+#       permissions:
+#         contents: write # read draft releases, upload files, publish
+#         actions: write # read the release run; the sweep dispatches this workflow
+#         attestations: read # verify the published digests' attestations
+#       uses: archestra-ai/.github/.github/workflows/release-finalize.yml@<sha> # vX.Y.Z
+#       with:
+#         environment: releaser
+#         project: openappa
+#         release-workflow: .github/workflows/release.yml
+#         finalize-workflow: release-finalize.yml
+#         request-id: ${{ inputs.request_id || '' }}
+#         release-artifacts: release-assets
+#       secrets:
+#         APP_ID: ${{ secrets.APP_ID }}
+#         APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+#
+# Jobs that run after publication (`needs: finalize`, `if:
+# needs.finalize.outputs.published == 'true'`) stay in the caller.
+#
+# `upload: false` stops after the checks, for a caller whose own job uploads
+# the files and publishes the release (a Terraform provider checks the
+# publisher's signature first): it gets `publish`, `run-id`, `version`,
+# `tag-name` and `publisher-run-id`, and `published` stays `false`.
+name: Finalize a handed-off release
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: Deployment environment that holds APP_ID and APP_PRIVATE_KEY (release refs only).
+        type: string
+        required: true
+      project:
+        description: The release-publisher project name.
+        type: string
+        required: true
+      release-workflow:
+        description: The workflow file that hands off the request, `.github/workflows/<file>`.
+        type: string
+        required: true
+      finalize-workflow:
+        description: The caller's finalize workflow file name, which the sweep dispatches.
+        type: string
+        required: true
+      request-id:
+        description: "`<release run id>-<attempt>` to finalize. Empty sweeps for approved drafts instead."
+        type: string
+        default: ""
+      release-branches:
+        description: Regular expression of the branches a release comes from.
+        type: string
+        default: main
+      tag-template:
+        description: The release tag, with `{version}`.
+        type: string
+        default: v{version}
+      image-tag:
+        description: The project's image tag, `{version}` or `v{version}`.
+        type: string
+        default: "{version}"
+      chart-repositories:
+        description: Newline-separated `<chart> oci://<repository>` lines, one per chart in the request.
+        type: string
+        default: ""
+      release-artifacts:
+        description: Newline-separated artifacts of the release run whose files the release gets.
+        type: string
+        default: ""
+      return-artifact:
+        description: An artifact the publisher run returned (a Terraform provider's signed files) whose files the release gets.
+        type: string
+        default: ""
+      latest:
+        description: "`false` keeps a stable release from becoming the repository's latest."
+        type: boolean
+        default: true
+      upload:
+        description: "`false` checks the request and the publication only; the caller uploads and publishes."
+        type: boolean
+        default: true
+    secrets:
+      APP_ID:
+        required: true
+      APP_PRIVATE_KEY:
+        required: true
+    outputs:
+      publish:
+        description: "`true` when the request's release was still a draft and its publication checked out."
+        value: ${{ jobs.finalize.outputs.publish }}
+      published:
+        description: "`true` when this run published the release."
+        value: ${{ jobs.finalize.outputs.published }}
+      run-id:
+        description: The release run that handed off the request.
+        value: ${{ jobs.finalize.outputs.run-id }}
+      publisher-run-id:
+        description: The publisher run that published it.
+        value: ${{ jobs.finalize.outputs.publisher-run-id }}
+      version:
+        description: The published version.
+        value: ${{ jobs.finalize.outputs.version }}
+      tag-name:
+        description: The published release tag.
+        value: ${{ jobs.finalize.outputs.tag-name }}
+
+permissions: {}
+
+jobs:
+  sweep:
+    name: Find approved releases
+    if: ${{ inputs.request-id == '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: false # A secrets and branch gate; nothing is deployed.
+    permissions:
+      contents: read # List draft releases (push access only).
+      actions: write # Read release runs; dispatch the finalize workflow.
+    steps:
+      - name: Generate a publisher token
+        id: publisher-token
+        uses: archestra-ai/.github/actions/github-app-token@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
+        with:
+          owner: archestra-ai
+          repositories: release-publisher
+          permission-actions: read # Read the publisher's runs.
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Dispatch the approved releases
+        uses: archestra-ai/.github/actions/release-finalize@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
+        with:
+          operation: sweep
+          token: ${{ github.token }}
+          project: ${{ inputs.project }}
+          release-workflow: ${{ inputs.release-workflow }}
+          release-branches: ${{ inputs.release-branches }}
+          tag-template: ${{ inputs.tag-template }}
+          publisher-token: ${{ steps.publisher-token.outputs.token }}
+          finalize-workflow: ${{ inputs.finalize-workflow }}
+
+  finalize:
+    name: Publish release
+    if: ${{ inputs.request-id != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      # One publication per repository at a time; a second dispatch for the
+      # same request waits and then finds the release already published.
+      group: release-finalize-${{ github.repository }}
+      cancel-in-progress: false
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: false # A secrets and branch gate; nothing is deployed.
+    permissions:
+      contents: write # Read draft releases, upload the files and publish the release.
+      actions: read # Read the release run, its request and its artifacts.
+      attestations: read # Verify the published digests' attestations.
+    outputs:
+      publish: ${{ steps.verify.outcome == 'success' && 'true' || 'false' }}
+      published: ${{ steps.publish.outputs.published || 'false' }}
+      run-id: ${{ steps.request.outputs.run-id }}
+      publisher-run-id: ${{ steps.publisher-run.outputs.id }}
+      version: ${{ steps.request.outputs.version }}
+      tag-name: ${{ steps.request.outputs.tag-name }}
+    steps:
+      - name: Read the release run's request
+        id: request
+        uses: archestra-ai/.github/actions/release-finalize@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
+        with:
+          operation: request
+          token: ${{ github.token }}
+          project: ${{ inputs.project }}
+          release-workflow: ${{ inputs.release-workflow }}
+          release-branches: ${{ inputs.release-branches }}
+          tag-template: ${{ inputs.tag-template }}
+          request-id: ${{ inputs.request-id }}
+
+      - name: Generate a publisher token
+        id: publisher-token
+        if: ${{ steps.request.outputs.publish == 'true' }}
+        uses: archestra-ai/.github/actions/github-app-token@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
+        with:
+          owner: archestra-ai
+          repositories: release-publisher
+          permission-actions: read # Find the publisher run and download what it returned.
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # The publisher run succeeded and every public name holds the digest
+      # this repository attested.
+      - name: Verify the publication
+        id: verify
+        if: ${{ steps.request.outputs.publish == 'true' }}
+        uses: archestra-ai/.github/actions/release-publish-verify@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
+        with:
+          token: ${{ steps.publisher-token.outputs.token }}
+          attestation-token: ${{ github.token }}
+          request-file: ${{ steps.request.outputs.request-file }}
+          signer-repository: ${{ github.repository }}
+          signer-workflow: ${{ github.repository }}/${{ inputs.release-workflow }}
+          requester: archestra-releaser[bot]
+          image-tag: ${{ inputs.image-tag }}
+          chart-repositories: ${{ inputs.chart-repositories }}
+
+      - name: Name the publisher run
+        id: publisher-run
+        if: ${{ steps.request.outputs.publish == 'true' }}
+        env:
+          RUN_URL: ${{ steps.verify.outputs.run-url }}
+        run: |
+          set -euo pipefail
+          id=${RUN_URL##*/runs/}
+          id=${id%%/*}
+          [[ "$RUN_URL" == https://github.com/archestra-ai/release-publisher/actions/runs/* && "$id" =~ ^[0-9]+$ ]] \
+            || { echo "::error::Unexpected publisher run URL: $RUN_URL"; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+      - name: Download the release files
+        id: files
+        if: ${{ steps.request.outputs.publish == 'true' && inputs.upload }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHER_TOKEN: ${{ steps.publisher-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ steps.request.outputs.run-id }}
+          PUBLISHER_RUN_ID: ${{ steps.publisher-run.outputs.id }}
+          RELEASE_ARTIFACTS: ${{ inputs.release-artifacts }}
+          RETURN_ARTIFACT: ${{ inputs.return-artifact }}
+          FILES_DIR: ${{ runner.temp }}/release-files
+        run: |
+          set -euo pipefail
+          mkdir -p "$FILES_DIR"
+          while IFS= read -r artifact; do
+            [ -n "$artifact" ] || continue
+            gh run download "$RUN_ID" --repo "$REPOSITORY" --name "$artifact" --dir "$FILES_DIR/release/$artifact"
+          done <<< "$RELEASE_ARTIFACTS"
+          if [ -n "$RETURN_ARTIFACT" ]; then
+            GH_TOKEN="$PUBLISHER_TOKEN" gh run download "$PUBLISHER_RUN_ID" --repo archestra-ai/release-publisher \
+              --name "$RETURN_ARTIFACT" --dir "$FILES_DIR/returned"
+          fi
+          # One release can hold only one file of a name.
+          files=$(find "$FILES_DIR" -type f | sort)
+          duplicates=$(printf '%s\n' "$files" | sed '/^$/d' | xargs -r -n1 basename | sort | uniq -d)
+          [ -z "$duplicates" ] || { echo "::error::Release files share a name: $duplicates"; exit 1; }
+          {
+            echo "files<<EOF"
+            printf '%s\n' "$files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        id: publish
+        if: ${{ steps.request.outputs.publish == 'true' && inputs.upload }}
+        uses: archestra-ai/.github/actions/release-finalize@4f3661ae56535755c008f6cc9b5343c5115af1e8 # v1.29.0
+        with:
+          operation: publish
+          token: ${{ github.token }}
+          project: ${{ inputs.project }}
+          release-workflow: ${{ inputs.release-workflow }}
+          release-branches: ${{ inputs.release-branches }}
+          tag-template: ${{ inputs.tag-template }}
+          tag-name: ${{ steps.request.outputs.tag-name }}
+          version: ${{ steps.request.outputs.version }}
+          request-file: ${{ steps.request.outputs.request-file }}
+          files: ${{ steps.files.outputs.files }}
+          latest: ${{ inputs.latest && 'true' || 'false' }}
