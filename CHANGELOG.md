@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.0](https://github.com/archestra-ai/.github/compare/v1.30.0...v1.31.0) (2026-11-16)
+
+
+### Features
+
+* **attest-provenance:** reusable workflow that signs build provenance in a job of its own ([#92](https://github.com/archestra-ai/.github/issues/92)) ([f203a96](https://github.com/archestra-ai/.github/commit/f203a96bdc9b9132feba59cc8322dde1c93f7286))
+
 ## [1.30.0](https://github.com/archestra-ai/.github/compare/v1.29.0...v1.30.0) (2026-11-15)
 
 
