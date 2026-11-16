@@ -71,7 +71,7 @@ This repository releases itself with Release Please ([`release.yml`](.github/wor
 
 [`release-publish.yml`](.github/workflows/release-publish.yml) is a reusable workflow that asks [release-publisher](https://github.com/archestra-ai/release-publisher) to publish a release run's attested staged images, charts and release assets, and waits for the publisher's run, the release's approval included (every release, prereleases too; dry runs need none). Callers wait here, so the 360-minute job limit is set once. Before the request, it attests what each image contains (SPDX and CycloneDX SBOMs, a secret scan; [`attest-release-image`](actions/attest-release-image)), and a live secret stops the release; the calling job grants `id-token: write`, `attestations: write` and `packages: read`.
 
-- Attest in the caller's own job, before this one. An attestation names the workflow file that ran its step, and the publisher accepts only the project's release workflow.
+- Attest build provenance with [`attest-provenance.yml`](#build-provenance) before this one, in the same run.
 - Pass the staged digests as the `images` JSON. Charts and release assets come from artifacts of the calling run (`chart-artifact`, `asset-artifact`); `return-artifact` copies what the publisher returns (a Terraform provider's signed `release-assets`) into the calling run.
 - Keep the release App's key in a deployment environment that only release refs can use, and name it in `environment`, as with Release Please.
 - Steps after the publish (a GitHub release, notifications) stay in caller jobs that need this one.
@@ -80,6 +80,14 @@ This repository releases itself with Release Please ([`release.yml`](.github/wor
 The `release-images-publish` action does the request inside it; callers use this workflow.
 
 Pin callers to a reviewed full commit SHA, as with the shared actions.
+
+## Build provenance
+
+[`attest-provenance.yml`](.github/workflows/attest-provenance.yml) is a reusable workflow that signs SLSA build provenance for what the calling run built: images by public name and digest (`<name>@sha256:<hex>`), files by `sha256sum` line. It signs in a job of its own that runs only its steps, so no build step can reach the signing identity and a build cannot forge its provenance. That, with GitHub-hosted runners, is what SLSA Build L3 asks for.
+
+- Build in jobs without `id-token: write` or `attestations: write`, and pass the digests out as job outputs. The calling job grants this workflow `id-token: write` and `attestations: write`.
+- The certificate names `archestra-ai/.github/.github/workflows/attest-provenance.yml` as the signer and the calling run as the build. Verify with `gh attestation verify ... --signer-workflow archestra-ai/.github/.github/workflows/attest-provenance.yml`.
+- release-publisher accepts only this workflow's provenance for a project with `shared_provenance`. For other projects it is preferred, and provenance a project signs itself passes with a warning.
 
 ## Archestra Runtime Reviews
 

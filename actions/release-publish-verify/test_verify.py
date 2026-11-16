@@ -35,12 +35,14 @@ def publisher_run(**overrides):
 class Tools:
     """Fake gh, docker and helm."""
 
-    def __init__(self, runs=None, digests=None, chart=CHART, attestation_ok=True):
+    def __init__(self, runs=None, digests=None, chart=CHART, attestation_ok=True, signers=None):
         self.runs = runs if runs is not None else [publisher_run(display_title="Publish archestra 1.2.3 [90-0]"),
                                                    publisher_run()]
         self.digests = digests or {}
         self.chart = chart
         self.attestation_ok = attestation_ok
+        # The signer workflows whose provenance the digests carry; None: any.
+        self.signers = signers
         self.calls = []
 
     def run(self, args, env=None, **kwargs):
@@ -48,7 +50,8 @@ class Tools:
         if args[:2] == ["gh", "api"]:
             return done(args, json.dumps({"workflow_runs": self.runs}))
         if args[:3] == ["gh", "attestation", "verify"]:
-            if not self.attestation_ok:
+            signer = args[args.index("--signer-workflow") + 1]
+            if not self.attestation_ok or (self.signers is not None and signer not in self.signers):
                 raise subprocess.CalledProcessError(1, args)
             return done(args, "")
         if args[:4] == ["docker", "buildx", "imagetools", "inspect"]:
@@ -95,7 +98,7 @@ class VerifyTests(unittest.TestCase):
         self.assertEqual(len(attestations), 2)
         self.assertEqual(attestations[0], (["gh", "attestation", "verify", f"oci://{HUB}@{DIGEST}", "--repo",
                                             "archestra-ai/archestra", "--signer-workflow",
-                                            "archestra-ai/archestra/.github/workflows/release-please.yml",
+                                            "archestra-ai/.github/.github/workflows/attest-provenance.yml",
                                             "--deny-self-hosted-runners"], "github-token"))
         self.assertIn("version=1.2.3\n", (self.directory / "output").read_text())
 
@@ -121,8 +124,19 @@ class VerifyTests(unittest.TestCase):
             self.verify(Tools(digests={HUB: "sha256:" + "b" * 64}))
 
     def test_a_digest_without_the_attestation_fails(self):
-        with self.assertRaises(subprocess.CalledProcessError):
+        with self.assertRaisesRegex(ValueError, "has no build provenance"):
             self.verify(Tools(attestation_ok=False))
+
+    def test_provenance_from_the_projects_own_workflow_still_passes(self):
+        own = "archestra-ai/archestra/.github/workflows/release-please.yml"
+        tools = Tools(signers={own})
+        self.verify(tools)
+        signers = [args[args.index("--signer-workflow") + 1] for args, _ in tools.calls if args[1] == "attestation"]
+        self.assertEqual(signers, [VERIFY.PROVENANCE_SIGNER, own] * 2)
+
+    def test_provenance_from_another_workflow_fails(self):
+        with self.assertRaisesRegex(ValueError, "has no build provenance"):
+            self.verify(Tools(signers={"archestra-ai/archestra/.github/workflows/other.yml"}))
 
     def test_a_chart_with_other_bytes_fails(self):
         with self.assertRaisesRegex(ValueError, "Chart archestra-platform 1.2.3 is sha256:"):
