@@ -17,7 +17,7 @@ inputs:
     description: The source repository that attested the digests (owner/name).
     required: true
   signer-workflow:
-    description: <owner>/<repo>/.github/workflows/<file> that signed every attestation (the project's signer_workflow).
+    description: <owner>/<repo>/.github/workflows/<file>, the project's signer_workflow. Build provenance from the shared attest-provenance.yml is checked first; this workflow's is accepted when there is none.
     required: true
   image-tag:
     description: The project's image tag, {version} or v{version}.

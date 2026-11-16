@@ -13,8 +13,10 @@ the GitHub API and the public registries.
    from the project's release App (actor and triggering actor), and its
    latest attempt concluded `success`.
 2. Every public `<name>:<tag>` resolves to the digest the release attested,
-   and that digest carries a build provenance attestation from the source
-   repository's signer workflow (`gh attestation verify`).
+   and that digest carries a build provenance attestation for the source
+   repository (`gh attestation verify`), signed by the shared
+   attest-provenance.yml or, before a project moved to it, by its own signer
+   workflow.
 3. Every chart in the request, pulled from its OCI repository at the
    version, has the sha256 the release attested.
 
@@ -75,10 +77,9 @@ def main(environment):
         actual = json.loads(published).get("digest")
         if actual != digest:
             raise ValueError(f"{name}:{tag} is {actual}, not the attested {digest}")
-        command("gh", "attestation", "verify", f"oci://{name}@{digest}", "--repo", signer_repository,
-                "--signer-workflow", signer_workflow, "--deny-self-hosted-runners",
-                token=environment.get("VERIFY_ATTESTATION_TOKEN"))
-        print(f"{name}:{tag} = {digest}, attested")
+        signer = verify_provenance(name, digest, signer_repository, signer_workflow,
+                                   environment.get("VERIFY_ATTESTATION_TOKEN"))
+        print(f"{name}:{tag} = {digest}, attested by {signer}")
     for chart, sha256 in sorted(((request.get("charts") or {}).get("sha256") or {}).items()):
         with tempfile.TemporaryDirectory() as directory:
             command("helm", "pull", f"{charts[chart]}/{chart}", "--version", request["version"],
@@ -92,6 +93,20 @@ def main(environment):
     if output:
         with open(output, "a") as handle:
             handle.write(f"run-url={run['html_url']}\nversion={request['version']}\n")
+
+
+def verify_provenance(name, digest, signer_repository, signer_workflow, token):
+    """The workflow that signed `name@digest`'s build provenance for
+    signer_repository: PROVENANCE_SIGNER, or else signer_workflow."""
+    for signer in (PROVENANCE_SIGNER, signer_workflow):
+        try:
+            command("gh", "attestation", "verify", f"oci://{name}@{digest}", "--repo", signer_repository,
+                    "--signer-workflow", signer, "--deny-self-hosted-runners", token=token)
+            return signer
+        except subprocess.CalledProcessError:
+            continue
+    raise ValueError(f"{name}@{digest} has no build provenance for {signer_repository} "
+                     f"from {PROVENANCE_SIGNER} or {signer_workflow}")
 
 
 def load_request(path):
@@ -154,6 +169,10 @@ def check_run(run, publisher, requester):
     if run.get("status") != "completed" or run.get("conclusion") != "success":
         raise ValueError(f"The publisher run {run.get('html_url')} is {run.get('status')} "
                          f"({run.get('conclusion') or 'no conclusion'}), not successful")
+
+
+# Signs build provenance in a job no build step runs in (SLSA Build L3).
+PROVENANCE_SIGNER = "archestra-ai/.github/.github/workflows/attest-provenance.yml"
 
 
 def command(*args, token=None):
