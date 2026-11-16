@@ -36,12 +36,14 @@ class SubjectTests(unittest.TestCase):
             f"docker.io/archestra/platform@sha256:{DIGEST_A}\n"
             f"\n"
             f"{DIGEST_B}  archestra-platform-1.5.0.tgz\r\n"
-            f"{DIGEST_A} *terraform-provider-archestra_3.2.1_linux_amd64.zip\n")
+            f"{DIGEST_A} *terraform-provider-archestra_3.2.1_linux_amd64.zip\n"
+            f"{DIGEST_B}  ghcr.io/archestra-ai/appa-runtime\n")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(lines, [
             f"{DIGEST_A}  docker.io/archestra/platform",
             f"{DIGEST_B}  archestra-platform-1.5.0.tgz",
             f"{DIGEST_A}  terraform-provider-archestra_3.2.1_linux_amd64.zip",
+            f"{DIGEST_B}  ghcr.io/archestra-ai/appa-runtime",
         ])
 
     def test_anything_else_attests_nothing(self):
@@ -52,6 +54,8 @@ class SubjectTests(unittest.TestCase):
             f"docker.io/archestra/platform@sha256:{DIGEST_A[:-1]}",
             f"Docker.io/archestra/platform@sha256:{DIGEST_A}",
             f"{DIGEST_A}  ../escape.tgz",
+            f"{DIGEST_A}  /absolute.tgz",
+            f"{DIGEST_A}  ghcr.io/archestra-ai/appa-runtime:v1",
             f"{DIGEST_A}  two words.tgz",
             f"{DIGEST_A}  chart.tgz\n{DIGEST_B}  chart.tgz",
         ):

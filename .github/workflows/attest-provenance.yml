@@ -33,7 +33,7 @@ on:
         description: >-
           Newline-separated subjects: `<name>@sha256:<hex>` for an image (its
           public name, which release-publisher checks), or a `sha256sum` line
-          `<hex>  <file name>` for a file.
+          `<hex>  <name>`: a file's name, or an image's public name.
         type: string
         required: true
 
@@ -62,10 +62,10 @@ jobs:
             [[ "$line" =~ ^[[:space:]]*$ ]] && continue
             if [[ "$line" =~ ^[[:space:]]*([a-z0-9][a-z0-9._/-]*)@sha256:([0-9a-f]{64})[[:space:]]*$ ]]; then
               printf '%s  %s\n' "${BASH_REMATCH[2]}" "${BASH_REMATCH[1]}" >> "$SUBJECTS_FILE"
-            elif [[ "$line" =~ ^[[:space:]]*([0-9a-f]{64})[[:space:]]+\*?([A-Za-z0-9._+-]+)[[:space:]]*$ ]]; then
+            elif [[ "$line" =~ ^[[:space:]]*([0-9a-f]{64})[[:space:]]+\*?([A-Za-z0-9][A-Za-z0-9._+/-]*)[[:space:]]*$ ]]; then
               printf '%s  %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" >> "$SUBJECTS_FILE"
             else
-              echo "::error::Not a subject (<name>@sha256:<hex>, or <hex>  <file name>): ${line}"
+              echo "::error::Not a subject (<name>@sha256:<hex>, or <hex>  <name>): ${line}"
               exit 1
             fi
             count=$((count + 1))
