@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.1](https://github.com/archestra-ai/.github/compare/v1.31.0...v1.31.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **release-finalize:** verify with release-publish-verify v1.31.0, which accepts the shared provenance signer ([#94](https://github.com/archestra-ai/.github/issues/94)) ([3387726](https://github.com/archestra-ai/.github/commit/33877265fc50b6f288ac1bdab13f9e10050e3cf3))
+
 ## [1.31.0](https://github.com/archestra-ai/.github/compare/v1.30.0...v1.31.0) (2026-11-16)
 
 
