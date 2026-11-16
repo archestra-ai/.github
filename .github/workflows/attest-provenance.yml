@@ -1,0 +1,84 @@
+# Signs SLSA build provenance for what a caller's jobs built, in a job of its
+# own that runs only these steps: no build step can reach its signing
+# identity, so a build cannot forge its provenance (SLSA Build L3, with
+# GitHub-hosted runners for isolation).
+#
+# The certificate names this file as the signer and the caller's run as the
+# build. release-publisher requires provenance from this workflow for a project
+# with `shared_provenance`. Verify one with:
+#
+#   gh attestation verify oci://<image>@<digest> --repo archestra-ai/<repo> \
+#     --signer-workflow archestra-ai/.github/.github/workflows/attest-provenance.yml
+#
+# Usage: build in jobs without `id-token: write` or `attestations: write`,
+# pass the digests out as job outputs, then:
+#
+#   jobs:
+#     attest:
+#       needs: build
+#       permissions:
+#         id-token: write # sign the build provenance
+#         attestations: write # store it
+#       uses: archestra-ai/.github/.github/workflows/attest-provenance.yml@<sha> # vX.Y.Z
+#       with:
+#         subjects: |
+#           ghcr.io/archestra-ai/example@${{ needs.build.outputs.digest }}
+#           ${{ needs.build.outputs.checksums }}
+name: Attest build provenance
+
+on:
+  workflow_call:
+    inputs:
+      subjects:
+        description: >-
+          Newline-separated subjects: `<name>@sha256:<hex>` for an image (its
+          public name, which release-publisher checks), or a `sha256sum` line
+          `<hex>  <file name>` for a file.
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  attest:
+    name: Attest build provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write # Sign the build provenance.
+      attestations: write # Store the build provenance.
+    steps:
+      - name: Check the subjects
+        id: subjects
+        env:
+          SUBJECTS: ${{ inputs.subjects }}
+          SUBJECTS_FILE: ${{ runner.temp }}/provenance-subjects.txt
+        run: |
+          set -euo pipefail
+          : > "$SUBJECTS_FILE"
+          count=0
+          while IFS= read -r line || [ -n "$line" ]; do
+            line=${line%$'\r'}
+            [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+            if [[ "$line" =~ ^[[:space:]]*([a-z0-9][a-z0-9._/-]*)@sha256:([0-9a-f]{64})[[:space:]]*$ ]]; then
+              printf '%s  %s\n' "${BASH_REMATCH[2]}" "${BASH_REMATCH[1]}" >> "$SUBJECTS_FILE"
+            elif [[ "$line" =~ ^[[:space:]]*([0-9a-f]{64})[[:space:]]+\*?([A-Za-z0-9._+-]+)[[:space:]]*$ ]]; then
+              printf '%s  %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" >> "$SUBJECTS_FILE"
+            else
+              echo "::error::Not a subject (<name>@sha256:<hex>, or <hex>  <file name>): ${line}"
+              exit 1
+            fi
+            count=$((count + 1))
+          done <<< "$SUBJECTS"
+          [ "$count" -gt 0 ] || { echo "::error::No subjects to attest"; exit 1; }
+          # One name, one digest: a second line for a name is a caller mistake.
+          duplicates=$(cut -d' ' -f3- "$SUBJECTS_FILE" | sort | uniq -d)
+          [ -z "$duplicates" ] || { echo "::error::Subjects named twice: ${duplicates//$'\n'/, }"; exit 1; }
+          echo "Attesting $count subject(s):"
+          cat "$SUBJECTS_FILE"
+          echo "file=$SUBJECTS_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: ${{ steps.subjects.outputs.file }}
