@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.34.0](https://github.com/archestra-ai/.github/compare/v1.33.0...v1.34.0) (2026-11-19)
+
+
+### Features
+
+* **release-publish:** attest each image's OpenVEX statements from the caller's vex-document ([#97](https://github.com/archestra-ai/.github/issues/97)) ([950521e](https://github.com/archestra-ai/.github/commit/950521efb8088b6b38fe60a43e508371d2633046))
+
 ## [1.33.0](https://github.com/archestra-ai/.github/compare/v1.32.1...v1.33.0) (2026-11-19)
 
 
