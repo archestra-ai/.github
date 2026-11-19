@@ -10,7 +10,7 @@ workflows:
         - 'actions/attest-build-provenance@v4.2.2'
     '.github/workflows/pr-title-linter.yml':
         - 'actions/checkout@v7.0.1'
-        - 'grafana/shared-workflows@lint-pr-title/v1'
+        - 'grafana/shared-workflows@70c40e5b6522c854a55334124545261cae3d4c73'
     '.github/workflows/release-finalize.yml':
         - 'archestra-ai/.github@v1.31.0'
     '.github/workflows/release-please.yml':
@@ -25,7 +25,7 @@ workflows:
         - 'archestra-ai/.github@v1.33.0'
     '.github/workflows/release.yml': []
     '.github/workflows/shared-actions.yml':
-        - 'actions/attest@v4.2.2'
+        - 'actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6'
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
     '.github/workflows/supply-chain-policy.yml':
@@ -51,11 +51,6 @@ dependencies:
     'actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d':
         ref: 'v4.2.1'
         commit: 'sha1-508db95dd578ae2727ebd6217d5ba78e4fbda05d'
-        owner_id: 44036562
-        repo_id: 760701061
-    'actions/attest@v4.2.2':
-        ref: 'v4.2.2'
-        commit: 'sha1-1e69f48acb82d1966a394da916b4c1698aa569d6'
         owner_id: 44036562
         repo_id: 760701061
     'actions/checkout@v7.0.1':
@@ -108,13 +103,6 @@ dependencies:
         commit: 'sha1-41f3faa2a88820fbf4201d86c31f78a12532bb90'
         owner_id: 216022683
         repo_id: 1192166927
-    'archestra-ai/.github@v1.31.0':
-        ref: 'v1.31.0'
-        commit: 'sha1-70bc4d15c2f34e34cc1aec2513ec1dbb8dfbc575'
-        owner_id: 216022683
-        repo_id: 1192166927
-        uses:
-            - 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510'
     'archestra-ai/.github@v1.33.0':
         ref: 'v1.33.0'
         commit: 'sha1-1bf4a7d38b15e9a4f48a1d4ad476ad4e4b932e00'
@@ -122,6 +110,13 @@ dependencies:
         repo_id: 1192166927
         uses:
             - 'actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6'
+    'archestra-ai/.github@v1.31.0':
+        ref: 'v1.31.0'
+        commit: 'sha1-70bc4d15c2f34e34cc1aec2513ec1dbb8dfbc575'
+        owner_id: 216022683
+        repo_id: 1192166927
+        uses:
+            - 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510'
     'archestra-ai/code-review-action@v0.12.0':
         ref: 'v0.12.0'
         commit: 'sha1-cf5083fd796aaf91be16a6812f322c6c9c0a03a7'
@@ -147,7 +142,7 @@ dependencies:
         commit: 'sha1-45996ed1f6d02564a971a2fa1b5860e934307cf7'
         owner_id: 16785467
         repo_id: 262236530
-    'grafana/shared-workflows@lint-pr-title/v1':
+    'grafana/shared-workflows@70c40e5b6522c854a55334124545261cae3d4c73':
         ref: 'lint-pr-title/v1'
         commit: 'sha1-70c40e5b6522c854a55334124545261cae3d4c73'
         owner_id: 7195757
