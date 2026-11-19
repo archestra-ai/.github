@@ -13,12 +13,20 @@
       Wraps a scanner's JSON report in the cosign vulnerability predicate
       (https://cosign.sigstore.dev/attestation/vuln/v1).
 
+  vex <document> <predicate.json> --image REF --subject-name NAME
+      Selects the statements of the project's OpenVEX document whose product
+      is this image (`pkg:oci/<last segment of the public name>`, no version)
+      and writes them as an OpenVEX document about the image's digest under its
+      public name (https://openvex.dev/ns/v0.2.0). Exits 3, writing nothing,
+      when no statement names the image; an invalid statement exits 1.
+
   subjects <image> <subject name> <subjects file>
       Writes the attestation subject for the image's digest under its public
       name, in `sha256sum` format.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -28,6 +36,8 @@ from collections import Counter
 SECRET_SCAN_TYPE = "https://archestra.ai/attestations/secret-scan/v1"
 VULNERABILITY_TYPE = "https://cosign.sigstore.dev/attestation/vuln/v1"
 TRUFFLEHOG_URI = "https://github.com/trufflesecurity/trufflehog"
+# Exit status of `vex` when no statement names the image: nothing to attest.
+NO_VEX_STATEMENTS = 3
 IMAGE = re.compile(r"^(?P<name>[a-z0-9][a-z0-9._/:-]*?)(?::[\w][\w.-]{0,127})?@sha256:(?P<digest>[0-9a-f]{64})$")
 NAME = re.compile(r"^[a-z0-9][a-z0-9._/-]*(?::[0-9]+)?(?:/[a-z0-9._-]+)+$")
 
@@ -50,6 +60,11 @@ def main(argv):
     vulnerabilities.add_argument("--scanner-version", required=True)
     vulnerabilities.add_argument("--started", required=True)
     vulnerabilities.add_argument("--finished", required=True)
+    vex = commands.add_parser("vex")
+    vex.add_argument("document")
+    vex.add_argument("predicate")
+    vex.add_argument("--image", required=True)
+    vex.add_argument("--subject-name", required=True)
     subjects = commands.add_parser("subjects")
     subjects.add_argument("image")
     subjects.add_argument("name")
@@ -59,6 +74,8 @@ def main(argv):
         return secrets_predicate(args)
     if args.command == "vulnerabilities":
         return vulnerability_predicate(args)
+    if args.command == "vex":
+        return vex_predicate(args)
     return write_subjects(args)
 
 
@@ -124,6 +141,29 @@ def vulnerability_predicate(args):
     return 0
 
 
+def vex_predicate(args):
+    match = IMAGE.match(args.image)
+    if not match:
+        raise ValueError(f"image must be a reference pinned by digest (<name>@sha256:<digest>): {args.image}")
+    if not NAME.match(args.subject_name):
+        raise ValueError(f"subject name must be a repository without tag or digest: {args.subject_name}")
+    vex = vex_module()
+    try:
+        document = vex.load(args.document)
+        predicate = vex.rendered(document, f"{args.subject_name}@sha256:{match['digest']}")
+    except vex.Invalid as error:
+        raise ValueError(f"{args.document}: {error}") from None
+    product_id = f"pkg:oci/{args.subject_name.rsplit('/', 1)[-1]}"
+    if not predicate["statements"]:
+        print(f"No VEX statement names {product_id} in {args.document}")
+        return NO_VEX_STATEMENTS
+    if run_url():
+        predicate["@id"] = f"{run_url()}#{args.subject_name}@sha256:{match['digest']}"
+    write_json(args.predicate, predicate)
+    print(f"VEX for {args.subject_name}@sha256:{match['digest']}: {len(predicate['statements'])} statement(s)")
+    return 0
+
+
 def write_subjects(args):
     match = IMAGE.match(args.image)
     if not match:
@@ -148,6 +188,14 @@ def run_url():
     repository = os.environ.get("GITHUB_REPOSITORY", "")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     return f"{server}/{repository}/actions/runs/{run_id}" if repository and run_id else ""
+
+
+def vex_module():
+    """vex.py next to this file: python3 -I keeps the script's directory off sys.path."""
+    spec = importlib.util.spec_from_file_location("vex", os.path.join(os.path.dirname(os.path.abspath(__file__)), "vex.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def write_json(path, value):

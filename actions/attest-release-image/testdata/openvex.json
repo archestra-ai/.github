@@ -1,0 +1,17 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/archestra-ai/.github/blob/main/actions/attest-release-image/testdata/openvex.json",
+  "author": "Archestra (https://archestra.ai)",
+  "timestamp": "2026-11-19T00:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {"name": "CVE-2026-0001"},
+      "products": [{"@id": "pkg:oci/static", "subcomponents": [{"@id": "pkg:deb/debian/tzdata@2024a-0+deb12u1"}]}],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "Test fixture for the shared-actions dry run; not a real statement.",
+      "timestamp": "2026-11-19T00:00:00Z"
+    }
+  ]
+}
