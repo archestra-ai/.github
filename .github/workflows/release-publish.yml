@@ -12,6 +12,8 @@
 #   actions/attest-release-image): SPDX and CycloneDX SBOMs and a secret scan,
 #   signed by this workflow, which the publisher accepts for those types only.
 #   A secret verified as live stops the release before the request is sent.
+#   With `vex-artifact`, each image's statements from the project's OpenVEX
+#   document are attested there too, pinned to its digest.
 #   The caller's job grants `id-token: write`, `attestations: write` and
 #   `packages: read` (to pull the staged images); dry runs skip it.
 # - The request names this run attempt (`<run>-<attempt>`). The publisher
@@ -97,6 +99,12 @@ on:
         default: ""
       chart-artifact:
         description: Artifact of the calling run holding the chart archives (<chart>-<version>.tgz). Empty sends no charts.
+        type: string
+        default: ""
+      vex-artifact:
+        description: >-
+          Artifact of the calling run holding the project's OpenVEX document (one .json file, from the
+          release commit). Each image's statements are attested for its digest. Empty attests no VEX.
         type: string
         default: ""
       asset-artifact:
@@ -191,11 +199,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
+      # Same run, so no token: actions/download-artifact reads it with the
+      # runner's own credentials.
+      - name: Download the VEX document
+        if: ${{ inputs.vex-artifact != '' }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.vex-artifact }}
+          path: release-publish/vex
+
+      - name: Find the VEX document
+        id: vex
+        if: ${{ inputs.vex-artifact != '' }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(release-publish/vex/*.json)
+          [ "${#files[@]}" -eq 1 ] || { echo "::error::The VEX artifact must hold exactly one .json file, not ${#files[@]}"; exit 1; }
+          echo "path=${files[0]}" >> "$GITHUB_OUTPUT"
+
       - name: Attest the image contents
-        uses: archestra-ai/.github/actions/attest-release-image@bf618cccb21049136339ae43eae9767d534f45d6 # v1.27.0
+        uses: archestra-ai/.github/actions/attest-release-image@6791249cb2befdd914549c8877ea02120d8e34c9 # vex-document (release before merging)
         with:
           image: ${{ matrix.image.image }}
           subject-name: ${{ matrix.image.name }}
+          vex-document: ${{ steps.vex.outputs.path }}
 
   publish:
     name: Publish through release-publisher
