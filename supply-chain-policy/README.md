@@ -189,13 +189,12 @@ organization's SHA-pinning policy and zizmor 1.32 or newer. Pins inside
 composite actions (`action.yml`) stay as they are. Dependabot updates the
 lockfile when it bumps an action in an onboarded workflow.
 
-Reusable workflows (`on: workflow_call`) keep full commit SHA pins on their
-steps. GitHub checks a called workflow's actions against the caller's lockfile,
-which does not list them, so a tag there fails the caller's run before it
-starts ("actions ... are not allowed"). `gh actions-lock` reports these pins as
-`sha-as-ref` warnings, and fix mode rewrites them to tags: run
-`gh actions-lock --verify` in this repository, or restore the pins after a fix
-run.
+Reusable workflows (`on: workflow_call`) use tag refs like any other workflow,
+so this repository's lockfile covers them at every commit a caller pins. A
+caller must pin a release of this repository that has the lockfile (v1.32.1 or
+later), or the organization's **Require lockfile** policy blocks the call.
+Composite actions (`action.yml`) keep full commit SHA pins: a lockfile cannot
+lock a composite action's own `uses:`.
 
 A failure that names `unreachable-pin` or a moved tag means upstream history
 changed. Read the
