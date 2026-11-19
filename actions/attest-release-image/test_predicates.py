@@ -93,6 +93,54 @@ class PredicateTests(unittest.TestCase):
         self.assertEqual(predicate["scanner"]["uri"], "https://github.com/docker/scout-cli")
         self.assertEqual(set(predicate), {"invocation", "scanner", "metadata"})
 
+    def vex(self, statements, subject="docker.io/archestra/platform"):
+        document = self.root / "project.openvex.json"
+        document.write_text(json.dumps({"@context": "https://openvex.dev/ns/v0.2.0", "@id": "https://example.test/vex",
+                                        "author": "Archestra", "timestamp": "2026-11-18T00:00:00Z", "version": 4,
+                                        "statements": statements}))
+        predicate = self.root / "vex.json"
+        status, output = self.run_main("vex", document, predicate, "--image",
+                                       f"ghcr.io/archestra-ai/ci/platform@sha256:{DIGEST}", "--subject-name", subject)
+        return status, output, json.loads(predicate.read_text()) if predicate.exists() else None
+
+    def test_vex_keeps_the_image_statements_pinned_to_its_digest_under_its_public_name(self):
+        npm = {"@id": "pkg:npm/tar@6.2.0"}
+        status, _, predicate = self.vex([
+            {"vulnerability": {"name": "CVE-2026-0001"}, "status": "not_affected",
+             "justification": "vulnerable_code_not_in_execute_path", "impact_statement": "Only extracts trusted archives.",
+             "products": [{"@id": "pkg:oci/platform", "subcomponents": [npm]}, {"@id": "pkg:oci/agent-codex"}]},
+            {"vulnerability": {"name": "CVE-2026-0002"}, "status": "under_investigation",
+             "products": [{"@id": "pkg:oci/agent-codex"}]},
+        ])
+        self.assertEqual(status, 0)
+        purl = f"pkg:oci/platform@sha256%3A{DIGEST}?repository_url=docker.io/archestra/platform"
+        self.assertEqual(predicate["@context"], "https://openvex.dev/ns/v0.2.0")
+        self.assertEqual((predicate["author"], predicate["version"]), ("Archestra", 4))
+        # Only the statement about this image, with the other image's product dropped.
+        self.assertEqual([s["vulnerability"]["name"] for s in predicate["statements"]], ["CVE-2026-0001"])
+        self.assertEqual(predicate["statements"][0]["products"],
+                         [{"@id": purl, "identifiers": {"purl": purl}, "hashes": {"sha-256": DIGEST}, "subcomponents": [npm]}])
+        self.assertEqual(predicate["statements"][0]["impact_statement"], "Only extracts trusted archives.")
+
+    def test_vex_attests_nothing_for_an_image_no_statement_names(self):
+        status, output, predicate = self.vex([
+            {"vulnerability": {"name": "CVE-2026-0002"}, "status": "fixed", "products": [{"@id": "pkg:oci/agent-codex"}]},
+        ])
+        self.assertEqual((status, predicate), (predicates.NO_VEX_STATEMENTS, None))
+        self.assertIn("pkg:oci/platform", output)
+
+    def test_vex_refuses_statements_a_scanner_could_not_trust(self):
+        product = [{"@id": "pkg:oci/platform"}]
+        for statement in [
+            {"vulnerability": {"name": "CVE-1"}, "status": "not_affected", "products": product},  # no justification
+            {"vulnerability": {"name": "CVE-1"}, "status": "affected", "products": product},  # no action statement
+            {"vulnerability": {"name": "CVE-1"}, "status": "fine", "products": product},  # unknown status
+            {"vulnerability": {"name": "CVE-1"}, "status": "not_affected", "justification": "trust me", "products": product},
+            {"status": "fixed", "products": product},  # no vulnerability
+        ]:
+            with self.subTest(statement=statement), self.assertRaises(ValueError):
+                self.vex([statement])
+
     def test_subjects_name_the_digest_under_its_public_name(self):
         output = self.root / "subjects.txt"
         status, _ = self.run_main("subjects", f"ghcr.io/archestra-ai/ci/platform:1.5.0@sha256:{DIGEST}",

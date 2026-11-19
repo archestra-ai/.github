@@ -13,6 +13,13 @@
       Wraps a scanner's JSON report in the cosign vulnerability predicate
       (https://cosign.sigstore.dev/attestation/vuln/v1).
 
+  vex <document> <predicate.json> --image REF --subject-name NAME
+      Selects the statements of the project's OpenVEX document whose product
+      is this image (`pkg:oci/<last segment of the public name>`, no version)
+      and writes them as an OpenVEX document about the image's digest under its
+      public name (https://openvex.dev/ns/v0.2.0). Exits 3, writing nothing,
+      when no statement names the image; an invalid statement exits 1.
+
   subjects <image> <subject name> <subjects file>
       Writes the attestation subject for the image's digest under its public
       name, in `sha256sum` format.
@@ -28,6 +35,15 @@ from collections import Counter
 SECRET_SCAN_TYPE = "https://archestra.ai/attestations/secret-scan/v1"
 VULNERABILITY_TYPE = "https://cosign.sigstore.dev/attestation/vuln/v1"
 TRUFFLEHOG_URI = "https://github.com/trufflesecurity/trufflehog"
+OPENVEX_CONTEXT = "https://openvex.dev/ns/v0.2.0"
+# https://github.com/openvex/spec/blob/main/OPENVEX-SPEC.md#status-labels
+VEX_STATUSES = {"not_affected", "affected", "fixed", "under_investigation"}
+VEX_JUSTIFICATIONS = {
+    "component_not_present", "vulnerable_code_not_present", "vulnerable_code_not_in_execute_path",
+    "vulnerable_code_cannot_be_controlled_by_adversary", "inline_mitigations_already_exist",
+}
+# Exit status of `vex` when no statement names the image: nothing to attest.
+NO_VEX_STATEMENTS = 3
 IMAGE = re.compile(r"^(?P<name>[a-z0-9][a-z0-9._/:-]*?)(?::[\w][\w.-]{0,127})?@sha256:(?P<digest>[0-9a-f]{64})$")
 NAME = re.compile(r"^[a-z0-9][a-z0-9._/-]*(?::[0-9]+)?(?:/[a-z0-9._-]+)+$")
 
@@ -50,6 +66,11 @@ def main(argv):
     vulnerabilities.add_argument("--scanner-version", required=True)
     vulnerabilities.add_argument("--started", required=True)
     vulnerabilities.add_argument("--finished", required=True)
+    vex = commands.add_parser("vex")
+    vex.add_argument("document")
+    vex.add_argument("predicate")
+    vex.add_argument("--image", required=True)
+    vex.add_argument("--subject-name", required=True)
     subjects = commands.add_parser("subjects")
     subjects.add_argument("image")
     subjects.add_argument("name")
@@ -59,6 +80,8 @@ def main(argv):
         return secrets_predicate(args)
     if args.command == "vulnerabilities":
         return vulnerability_predicate(args)
+    if args.command == "vex":
+        return vex_predicate(args)
     return write_subjects(args)
 
 
@@ -122,6 +145,71 @@ def vulnerability_predicate(args):
     }
     write_json(args.predicate, predicate)
     return 0
+
+
+def vex_predicate(args):
+    match = IMAGE.match(args.image)
+    if not match:
+        raise ValueError(f"image must be a reference pinned by digest (<name>@sha256:<digest>): {args.image}")
+    if not NAME.match(args.subject_name):
+        raise ValueError(f"subject name must be a repository without tag or digest: {args.subject_name}")
+    with open(args.document, encoding="utf-8") as document:
+        source = json.load(document)
+    if source.get("@context") != OPENVEX_CONTEXT:
+        raise ValueError(f"{args.document} is not an OpenVEX {OPENVEX_CONTEXT} document")
+    digest = match["digest"]
+    # The project's document names images by their short name, so one
+    # statement covers the image in every registry it is published to.
+    product_id = f"pkg:oci/{args.subject_name.rsplit('/', 1)[-1]}"
+    # The public image's purl: what a scanner of the pulled image matches.
+    purl = f"pkg:oci/{args.subject_name.rsplit('/', 1)[-1]}@sha256%3A{digest}?repository_url={args.subject_name}"
+    statements = []
+    for index, statement in enumerate(source.get("statements") or []):
+        check_vex_statement(statement, index)
+        products = [product for product in statement["products"] if product.get("@id") == product_id]
+        if not products:
+            continue
+        subcomponents = [component for product in products for component in product.get("subcomponents") or []]
+        product = {"@id": purl, "identifiers": {"purl": purl}, "hashes": {"sha-256": digest}}
+        if subcomponents:
+            product["subcomponents"] = subcomponents
+        statements.append({**statement, "products": [product]})
+    if not statements:
+        print(f"No VEX statement names {product_id} in {args.document}")
+        return NO_VEX_STATEMENTS
+    url = run_url()
+    predicate = {
+        "@context": OPENVEX_CONTEXT,
+        "@id": f"{url or 'urn:archestra:vex'}#{args.subject_name}@sha256:{digest}",
+        "author": source.get("author") or "unknown",
+        "timestamp": source.get("timestamp") or "",
+        "version": source.get("version") or 1,
+        "statements": statements,
+    }
+    if source.get("role"):
+        predicate["role"] = source["role"]
+    write_json(args.predicate, predicate)
+    print(f"VEX for {args.subject_name}@sha256:{digest}: {len(statements)} statement(s)")
+    return 0
+
+
+def check_vex_statement(statement, index):
+    where = f"VEX statement {index}"
+    if not isinstance(statement, dict) or not isinstance(statement.get("products"), list):
+        raise ValueError(f"{where} has no products")
+    name = (statement.get("vulnerability") or {}).get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"{where} names no vulnerability")
+    status = statement.get("status")
+    if status not in VEX_STATUSES:
+        raise ValueError(f"{where} ({name}) has status {status!r}, not one of {sorted(VEX_STATUSES)}")
+    justification = statement.get("justification")
+    if justification is not None and justification not in VEX_JUSTIFICATIONS:
+        raise ValueError(f"{where} ({name}) has justification {justification!r}, not one of {sorted(VEX_JUSTIFICATIONS)}")
+    if status == "not_affected" and not (justification or statement.get("impact_statement")):
+        raise ValueError(f"{where} ({name}) is not_affected without a justification or impact_statement")
+    if status == "affected" and not statement.get("action_statement"):
+        raise ValueError(f"{where} ({name}) is affected without an action_statement")
 
 
 def write_subjects(args):
