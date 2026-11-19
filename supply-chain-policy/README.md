@@ -13,6 +13,7 @@ not block.
 | Rule | Level |
 | --- | --- |
 | `.github/dependabot.yml` exists when the repository has GitHub Actions workflows or npm, pnpm, Bun, Cargo or Go dependencies | fail |
+| Every workflow is onboarded to `.github/workflows/actions.lock` and every locked commit still verifies upstream (see [Workflow lockfile](#workflow-lockfile)) | fail |
 | Every `updates` entry sets `cooldown.default-days` of 7 or more; any `semver-*-days` is 7 or more; `cooldown.include` is not used to narrow it | fail |
 | An `updates` entry exists for `github-actions`, `npm`, `bun`, `cargo` and `gomod` when used | fail |
 | An `updates` entry exists for Python (`uv` or `pip`), Docker, Compose, Terraform, Helm, dev containers and the like when used | warn |
@@ -163,6 +164,43 @@ A repository that wants this before building Rust in its own CI (say, on a
 self-hosted runner) can still run that action as the first step of the build
 job.
 
+## Workflow lockfile
+
+`gh actions-lock --verify` checks that every workflow under
+`.github/workflows/` is in `.github/workflows/actions.lock` and that each locked
+commit still belongs to the tag or branch it was locked from. The
+organization's **Require lockfile** Actions policy blocks a run of any workflow
+that is not in the lockfile, so this check catches it in the pull request
+instead. Reusable workflow calls (`jobs.<id>.uses`) are not locked: keep them
+pinned to a full commit SHA.
+
+To onboard a repository or fix a failure, from its root:
+
+```sh
+gh extension install github/gh-actions-lock
+gh actions-lock --migrate-local-actions
+```
+
+Commit `.github/workflows/actions.lock` together with the workflow changes.
+`--migrate-local-actions` rewrites same-repository `./` actions to `$/`, which
+the lockfile can cover. The extension also replaces SHA pins in workflows with
+the tag they point to; the commit moves to the lockfile, which satisfies the
+organization's SHA-pinning policy and zizmor 1.32 or newer. Pins inside
+composite actions (`action.yml`) stay as they are. Dependabot updates the
+lockfile when it bumps an action in an onboarded workflow.
+
+Reusable workflows (`on: workflow_call`) use tag refs like any other workflow,
+so this repository's lockfile covers them at every commit a caller pins. A
+caller must pin a release of this repository that has the lockfile (v1.32.1 or
+later), or the organization's **Require lockfile** policy blocks the call.
+Composite actions (`action.yml`) keep full commit SHA pins: a lockfile cannot
+lock a composite action's own `uses:`.
+
+A failure that names `unreachable-pin` or a moved tag means upstream history
+changed. Read the
+[troubleshooting guide](https://github.com/github/gh-actions-lock/blob/main/docs/troubleshooting.md)
+before you accept the new commit.
+
 ## Cooldowns do not delay security fixes
 
 Dependabot's `cooldown` applies only to version updates: "The `cooldown` option
@@ -256,7 +294,8 @@ minimumReleaseAge: 10080
 
 Start every new repository with the starter `dependabot.yml` above (keep the
 `github-actions` entry even before the first workflow lands) and, for
-JavaScript, the `pnpm-workspace.yaml` settings. The check then passes from the
+JavaScript, the `pnpm-workspace.yaml` settings. Run `gh actions-lock` in the
+pull request that adds the first workflow. The check then passes from the
 first pull request.
 
 ## Running locally

@@ -97,7 +97,7 @@ class PredicateTests(unittest.TestCase):
         document = self.root / "project.openvex.json"
         document.write_text(json.dumps({"@context": "https://openvex.dev/ns/v0.2.0", "@id": "https://example.test/vex",
                                         "author": "Archestra", "timestamp": "2026-11-18T00:00:00Z", "version": 4,
-                                        "statements": statements}))
+                                        "statements": [{"timestamp": "2026-11-18T00:00:00Z", **s} for s in statements]}))
         predicate = self.root / "vex.json"
         status, output = self.run_main("vex", document, predicate, "--image",
                                        f"ghcr.io/archestra-ai/ci/platform@sha256:{DIGEST}", "--subject-name", subject)
