@@ -12,6 +12,9 @@
 #   actions/attest-release-image): SPDX and CycloneDX SBOMs and a secret scan,
 #   signed by this workflow, which the publisher accepts for those types only.
 #   A secret verified as live stops the release before the request is sent.
+#   With `vex-document`, each image's statements in the project's OpenVEX
+#   document (read from the release commit) are attested there too, pinned to
+#   its digest. The caller's job then also grants `contents: read`.
 #   The caller's job grants `id-token: write`, `attestations: write` and
 #   `packages: read` (to pull the staged images); dry runs skip it.
 # - The request names this run attempt (`<run>-<attempt>`). The publisher
@@ -99,6 +102,14 @@ on:
         description: Artifact of the calling run holding the chart archives (<chart>-<version>.tgz). Empty sends no charts.
         type: string
         default: ""
+      vex-document:
+        description: >-
+          Path, in the calling repository, of the project's OpenVEX document (for example
+          vex/openvex.json). It is read at the release commit, checked with the validate-vex rules, and
+          each image's statements are attested for its digest. Needs `contents: read` in the calling
+          job. Empty attests no VEX.
+        type: string
+        default: ""
       asset-artifact:
         description: Artifact of the calling run holding the release asset files (a Terraform provider's goreleaser output). Empty sends no assets.
         type: string
@@ -178,6 +189,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      contents: read # read the VEX document at the release commit
       id-token: write # sign the attestations
       attestations: write # store them
       packages: read # pull the staged image
@@ -191,11 +203,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
+      # Only the VEX document, from the commit the release was built from.
+      - name: Check out the VEX document
+        if: ${{ inputs.vex-document != '' }}
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: release-publish/source
+          sparse-checkout: ${{ inputs.vex-document }}
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Attest the image contents
-        uses: archestra-ai/.github/actions/attest-release-image@v1.27.0
+        uses: archestra-ai/.github/actions/attest-release-image@v1.33.0
         with:
           image: ${{ matrix.image.image }}
           subject-name: ${{ matrix.image.name }}
+          vex-document: ${{ inputs.vex-document != '' && format('release-publish/source/{0}', inputs.vex-document) || '' }}
 
   publish:
     name: Publish through release-publisher
