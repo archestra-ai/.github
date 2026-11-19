@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.32.1](https://github.com/archestra-ai/.github/compare/v1.32.0...v1.32.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* **release-please:** lock reusable workflows by tag so callers pass the lockfile policy ([#102](https://github.com/archestra-ai/.github/issues/102)) ([63733b2](https://github.com/archestra-ai/.github/commit/63733b2542c5c6ebe8e96d85b58cc9cef4c9e2fe))
+
+## [1.32.0](https://github.com/archestra-ai/.github/compare/v1.31.1...v1.32.0) (2026-11-19)
+
+
+### Features
+
+* **supply-chain-policy:** require a GitHub Actions workflow lockfile ([#99](https://github.com/archestra-ai/.github/issues/99)) ([ca83adf](https://github.com/archestra-ai/.github/commit/ca83adf5b2dc2c7816420b2017c45c8a723b8715))
+
+
+### Bug Fixes
+
+* **release-please:** pin actions in reusable workflows to commit SHAs ([#100](https://github.com/archestra-ai/.github/issues/100)) ([336a32f](https://github.com/archestra-ai/.github/commit/336a32f302348afb9fd1a38320f8b505497c66dd))
+
+
+### CI/CD
+
+* lock GitHub Actions dependencies in a workflow lockfile ([#98](https://github.com/archestra-ai/.github/issues/98)) ([b77f782](https://github.com/archestra-ai/.github/commit/b77f78219e99a512921a8f9aaccf2b47005e0181))
+
 ## [1.31.1](https://github.com/archestra-ai/.github/compare/v1.31.0...v1.31.1) (2026-11-16)
 
 

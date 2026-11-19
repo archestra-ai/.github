@@ -19,7 +19,7 @@ jobs:
       contents: read # read the repository under check, including private ones
     steps:
       - name: Checkout target repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           path: target
           persist-credentials: false
@@ -28,7 +28,7 @@ jobs:
       # ruleset's ref decides both. If GitHub ever reports a workflow ref
       # outside this repository, fall back to main.
       - name: Checkout org workflow repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           repository: archestra-ai/.github
           ref: ${{ startsWith(github.workflow_ref, 'archestra-ai/.github/') && github.workflow_sha || 'main' }}
@@ -37,6 +37,33 @@ jobs:
 
       - name: Check supply-chain policy
         run: python3 .org-github/supply-chain-policy/check_supply_chain_policy.py target
+
+      # Every workflow must be onboarded to .github/workflows/actions.lock, and
+      # every locked commit must still verify upstream, so the organization's
+      # "Require lockfile" Actions policy never blocks a run (see "Workflow
+      # lockfile" in the README). The job token reads the repository's actions;
+      # gh-actions-lock never writes with --verify.
+      - name: Find workflows
+        id: workflows
+        if: ${{ !cancelled() }}
+        working-directory: target
+        run: |
+          if git ls-files -- '.github/workflows/*.yml' '.github/workflows/*.yaml' | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No workflows; skipped."
+          fi
+
+      - name: Install gh-actions-lock
+        if: ${{ !cancelled() && steps.workflows.outputs.found == 'true' }}
+        run: bash .org-github/supply-chain-policy/install-gh-actions-lock.sh
+
+      - name: Verify workflow lockfile
+        if: ${{ !cancelled() && steps.workflows.outputs.found == 'true' }}
+        working-directory: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh-actions-lock --verify
 
       # Cargo has no stable release-age setting. Compare every tracked
       # Cargo.lock with the base commit and look up each newly locked
