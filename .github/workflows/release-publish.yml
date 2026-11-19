@@ -192,7 +192,7 @@ jobs:
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
       - name: Attest the image contents
-        uses: archestra-ai/.github/actions/attest-release-image@v1.27.0
+        uses: archestra-ai/.github/actions/attest-release-image@bf618cccb21049136339ae43eae9767d534f45d6 # v1.27.0
         with:
           image: ${{ matrix.image.image }}
           subject-name: ${{ matrix.image.name }}
@@ -220,14 +220,14 @@ jobs:
     steps:
       - name: Download the charts
         if: ${{ inputs.chart-artifact != '' }}
-        uses: actions/download-artifact@v8.0.2
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.chart-artifact }}
           path: release-publish/charts
 
       - name: Download the release assets
         if: ${{ inputs.asset-artifact != '' }}
-        uses: actions/download-artifact@v8.0.2
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.asset-artifact }}
           path: release-publish/assets
@@ -259,7 +259,7 @@ jobs:
 
       - name: Generate a publisher token
         id: publisher-token
-        uses: actions/create-github-app-token@v3.3.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -272,7 +272,7 @@ jobs:
 
       - name: Publish through release-publisher
         id: publish
-        uses: archestra-ai/.github/actions/release-images-publish@v1.22.0
+        uses: archestra-ai/.github/actions/release-images-publish@41f3faa2a88820fbf4201d86c31f78a12532bb90 # v1.22.0
         with:
           token: ${{ steps.publisher-token.outputs.token }}
           project: ${{ inputs.project }}
@@ -294,7 +294,7 @@ jobs:
       # What the caller's finishing workflow checks the publication against.
       # Kept longer than a request can wait for its approval (30 days).
       - name: Keep the request
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-request-${{ github.run_attempt }}
           path: release-publish/request.json
@@ -305,7 +305,7 @@ jobs:
       - name: Generate a token for what the publisher returns
         id: return-token
         if: ${{ inputs.return-artifact != '' }}
-        uses: actions/create-github-app-token@v3.3.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -325,7 +325,7 @@ jobs:
 
       - name: Keep what the publisher returns
         if: ${{ inputs.return-artifact != '' }}
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.return-artifact }}
           path: release-publish/returned
