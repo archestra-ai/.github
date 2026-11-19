@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.32.1](https://github.com/archestra-ai/.github/compare/v1.32.0...v1.32.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* **release-please:** lock reusable workflows by tag so callers pass the lockfile policy ([#102](https://github.com/archestra-ai/.github/issues/102)) ([63733b2](https://github.com/archestra-ai/.github/commit/63733b2542c5c6ebe8e96d85b58cc9cef4c9e2fe))
+
 ## [1.32.0](https://github.com/archestra-ai/.github/compare/v1.31.1...v1.32.0) (2026-11-19)
 
 
