@@ -57,17 +57,26 @@ jobs:
         with:
           image: gcr.io/distroless/static@sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931
           subject-name: gcr.io/distroless/static
+          vex-document: actions/attest-release-image/testdata/openvex.json
           attest: "false"
+      - name: Validate the VEX fixture
+        uses: $/actions/validate-vex
+        with:
+          document: actions/attest-release-image/testdata/openvex.json
       - name: Check the outputs
         env:
           SBOM: ${{ steps.scan.outputs.sbom-path }}
           CYCLONEDX: ${{ steps.scan.outputs.cyclonedx-path }}
           SECRETS: ${{ steps.scan.outputs.secret-scan-path }}
+          VEX: ${{ steps.scan.outputs.vex-path }}
         run: |
           set -euo pipefail
           jq -e '.spdxVersion == "SPDX-2.3" and (.packages | length) > 0' "$SBOM"
           jq -e '.bomFormat == "CycloneDX" and (.components | length) > 0' "$CYCLONEDX"
           jq -e '.result.verified == 0 and .scanner.version != ""' "$SECRETS"
+          # The fixture's statement, pinned to the scanned digest under the subject name.
+          jq -e '.statements | length == 1 and (.[0].products[0]["@id"]
+            == "pkg:oci/static@sha256%3Aaafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931?repository_url=gcr.io/distroless/static")' "$VEX"
 
   base-image-signatures:
     # The supply-chain policy's base-image check against real registries and
