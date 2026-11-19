@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.33.0](https://github.com/archestra-ai/.github/compare/v1.32.1...v1.33.0) (2026-11-19)
+
+
+### Features
+
+* **attest-release-image:** attest OpenVEX statements, with one shared vex.py and a validate-vex action ([#96](https://github.com/archestra-ai/.github/issues/96)) ([2f8f2fe](https://github.com/archestra-ai/.github/commit/2f8f2fe07c438cec26ac719ad82525ac0f6509e2))
+
 ## [1.32.1](https://github.com/archestra-ai/.github/compare/v1.32.0...v1.32.1) (2026-11-19)
 
 
