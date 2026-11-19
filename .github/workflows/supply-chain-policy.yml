@@ -19,7 +19,7 @@ jobs:
       contents: read # read the repository under check, including private ones
     steps:
       - name: Checkout target repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           path: target
           persist-credentials: false
@@ -28,7 +28,7 @@ jobs:
       # ruleset's ref decides both. If GitHub ever reports a workflow ref
       # outside this repository, fall back to main.
       - name: Checkout org workflow repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           repository: archestra-ai/.github
           ref: ${{ startsWith(github.workflow_ref, 'archestra-ai/.github/') && github.workflow_sha || 'main' }}
