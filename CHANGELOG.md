@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.35.0](https://github.com/archestra-ai/.github/compare/v1.34.0...v1.35.0) (2026-11-20)
+
+
+### Features
+
+* **release-publish:** read the VEX document from vex-ref ([#107](https://github.com/archestra-ai/.github/issues/107)) ([1cf0aa0](https://github.com/archestra-ai/.github/commit/1cf0aa0bda758648cafbe1ec8c4353db560b18ab))
+
 ## [1.34.0](https://github.com/archestra-ai/.github/compare/v1.33.0...v1.34.0) (2026-11-19)
 
 
