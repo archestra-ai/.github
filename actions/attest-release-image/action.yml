@@ -1,8 +1,8 @@
 name: Attest a release image
 description: >-
-  Sign SBOMs (SPDX and CycloneDX), a secret scan and (when given) a vulnerability scan and the
-  image's OpenVEX statements for one release image, under its public name. A live secret in the image stops the
-  job before anything is attested.
+  Sign SBOMs (SPDX and CycloneDX), a secret scan, a malware scan and (when given) a vulnerability scan and the
+  image's OpenVEX statements for one release image, under its public name. A live secret or malware in the image
+  stops the job before anything is attested.
 inputs:
   image:
     description: Where to pull the image from, pinned by digest (for example ghcr.io/archestra-ai/ci/platform@sha256:...). Log in to its registry first.
@@ -31,6 +31,15 @@ inputs:
   on-verified-secret:
     description: "`fail` (default): a secret trufflehog verifies as live stops the job, unattested. `record`: attest the counts and continue."
     default: fail
+  malware-scan:
+    description: >-
+      `true` (default): scan the image's files with ClamAV, with signatures fetched for this scan, and attest the
+      result (https://archestra.ai/attestations/malware-scan/v1). When ClamAV's mirror refuses the signature
+      download, the step warns and attests no malware scan.
+    default: "true"
+  on-malware:
+    description: "`fail` (default): a ClamAV detection stops the job, unattested. `record`: attest the detections and continue."
+    default: fail
   attest:
     description: "`false` builds the SBOM and runs the scans without signing anything (for tests)."
     default: "true"
@@ -44,6 +53,9 @@ outputs:
   secret-scan-path:
     description: The secret scan predicate.
     value: ${{ steps.paths.outputs.secrets }}
+  malware-scan-path:
+    description: The malware scan predicate (absent when no scan ran).
+    value: ${{ steps.malware.outputs.attest == 'true' && steps.paths.outputs.malware || '' }}
   vex-path:
     description: The OpenVEX document attested for the image (absent when no statement names it).
     value: ${{ steps.vex.outputs.attest == 'true' && steps.paths.outputs.vex || '' }}
@@ -57,6 +69,7 @@ runs:
         IMAGE: ${{ inputs.image }}
         SUBJECT_NAME: ${{ inputs.subject-name }}
         ON_VERIFIED: ${{ inputs.on-verified-secret }}
+        ON_MALWARE: ${{ inputs.on-malware }}
         REPORT: ${{ inputs.vulnerability-report }}
         SCANNER_URI: ${{ inputs.vulnerability-scanner-uri }}
         SCANNER_VERSION: ${{ inputs.vulnerability-scanner-version }}
@@ -64,6 +77,7 @@ runs:
       run: |
         set -euo pipefail
         case "$ON_VERIFIED" in fail|record) ;; *) echo "::error::on-verified-secret must be fail or record"; exit 1 ;; esac
+        case "$ON_MALWARE" in fail|record) ;; *) echo "::error::on-malware must be fail or record"; exit 1 ;; esac
         if [ -n "$REPORT" ] && { [ -z "$SCANNER_URI" ] || [ -z "$SCANNER_VERSION" ]; }; then
           echo "::error::vulnerability-report needs vulnerability-scanner-uri and vulnerability-scanner-version"; exit 1
         fi
@@ -76,6 +90,7 @@ runs:
           echo "sbom=$work/sbom.spdx.json"
           echo "cyclonedx=$work/sbom.cdx.json"
           echo "secrets=$work/secret-scan.json"
+          echo "malware=$work/malware-scan.json"
           echo "vulnerabilities=$work/vulnerabilities.json"
           echo "vex=$work/vex.json"
         } >> "$GITHUB_OUTPUT"
@@ -132,6 +147,28 @@ runs:
           --version "$VERSION" --started "$started" --finished "$finished" --on-verified "$ON_VERIFIED" || status=$?
         rm -f "$WORK/findings.jsonl"
         exit "$status"
+
+    - name: Scan for malware
+      id: malware
+      if: ${{ inputs.malware-scan == 'true' }}
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        PLATFORM: ${{ inputs.platform }}
+        PREDICATE: ${{ steps.paths.outputs.malware }}
+        WORK: ${{ steps.paths.outputs.work }}
+        ON_MALWARE: ${{ inputs.on-malware }}
+        SCAN: ${{ github.action_path }}/malware-scan.sh
+      run: |
+        set -euo pipefail
+        # Exit 3: no signature database, so there is nothing to attest.
+        status=0
+        bash "$SCAN" "$IMAGE" "$PLATFORM" "$PREDICATE" "$WORK" "$ON_MALWARE" || status=$?
+        case "$status" in
+          0) echo "attest=true" >> "$GITHUB_OUTPUT" ;;
+          3) echo "attest=false" >> "$GITHUB_OUTPUT" ;;
+          *) exit "$status" ;;
+        esac
 
     - name: Wrap the vulnerability report
       if: ${{ inputs.vulnerability-report != '' }}
@@ -193,6 +230,14 @@ runs:
         subject-checksums: ${{ steps.paths.outputs.subjects }}
         predicate-type: https://archestra.ai/attestations/secret-scan/v1
         predicate-path: ${{ steps.paths.outputs.secrets }}
+
+    - name: Attest the malware scan
+      if: ${{ inputs.attest == 'true' && steps.malware.outputs.attest == 'true' }}
+      uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      with:
+        subject-checksums: ${{ steps.paths.outputs.subjects }}
+        predicate-type: https://archestra.ai/attestations/malware-scan/v1
+        predicate-path: ${{ steps.paths.outputs.malware }}
 
     - name: Attest the vulnerability scan
       if: ${{ inputs.attest == 'true' && inputs.vulnerability-report != '' }}

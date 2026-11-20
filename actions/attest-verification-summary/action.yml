@@ -1,0 +1,69 @@
+name: Attest a verification summary
+description: >-
+  Verify one release image's build provenance against the SLSA Build Level 3 policy in README.md and, when it
+  passes, sign a SLSA verification summary (https://slsa.dev/verification_summary/v1) for the image's digest
+  under its public name. An image with no provenance that meets the policy gets no summary and a warning.
+inputs:
+  image:
+    description: The image, pinned by digest (for example ghcr.io/archestra-ai/ci/platform@sha256:...). Only its digest is read; nothing is pulled.
+    required: true
+  subject-name:
+    description: The image's public name, without tag or digest (for example docker.io/archestra/platform).
+    required: true
+  repository:
+    description: The repository whose release workflow built the image.
+    default: ${{ github.repository }}
+  signer-workflow:
+    description: The reusable workflow that must have signed the build provenance.
+    default: archestra-ai/.github/.github/workflows/attest-provenance.yml
+  attest:
+    description: "`false` verifies and writes the predicate without signing it (for tests)."
+    default: "true"
+outputs:
+  summary-path:
+    description: The verification summary predicate (absent when the provenance did not meet the policy).
+    value: ${{ steps.verify.outputs.attest == 'true' && steps.verify.outputs.predicate || '' }}
+runs:
+  using: composite
+  steps:
+    - name: Verify the build provenance
+      id: verify
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        IMAGE: ${{ inputs.image }}
+        SUBJECT_NAME: ${{ inputs.subject-name }}
+        REPOSITORY: ${{ inputs.repository }}
+        SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
+        SUMMARY: ${{ github.action_path }}/summary.py
+      run: |
+        set -euo pipefail
+        work=$(mktemp -d "$RUNNER_TEMP/attest-verification-summary.XXXXXX")
+        verified=0
+        gh attestation verify "oci://$IMAGE" --repo "$REPOSITORY" --signer-workflow "$SIGNER_WORKFLOW" \
+          --predicate-type https://slsa.dev/provenance/v1 --deny-self-hosted-runners --format json \
+          > "$work/verified.json" 2> "$work/verify.log" || verified=$?
+        if [ "$verified" -ne 0 ]; then
+          tail -n 5 "$work/verify.log"
+          # A project still signing provenance in its own workflow has none from the shared signer.
+          echo "::warning::$IMAGE has no build provenance from $SIGNER_WORKFLOW in $REPOSITORY; no verification summary"
+          echo "attest=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        python3 -I "$SUMMARY" "$work/verified.json" "$work/summary.json" --image "$IMAGE" --subject-name "$SUBJECT_NAME" \
+          --repository "$REPOSITORY" --signer-workflow "$SIGNER_WORKFLOW" --time "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        digest=${IMAGE##*@sha256:}
+        printf '%s  %s\n' "$digest" "$SUBJECT_NAME" > "$work/subjects.txt"
+        {
+          echo "attest=true"
+          echo "predicate=$work/summary.json"
+          echo "subjects=$work/subjects.txt"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Attest the verification summary
+      if: ${{ inputs.attest == 'true' && steps.verify.outputs.attest == 'true' }}
+      uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      with:
+        subject-checksums: ${{ steps.verify.outputs.subjects }}
+        predicate-type: https://slsa.dev/verification_summary/v1
+        predicate-path: ${{ steps.verify.outputs.predicate }}
