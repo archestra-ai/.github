@@ -69,14 +69,45 @@ jobs:
           CYCLONEDX: ${{ steps.scan.outputs.cyclonedx-path }}
           SECRETS: ${{ steps.scan.outputs.secret-scan-path }}
           VEX: ${{ steps.scan.outputs.vex-path }}
+          MALWARE: ${{ steps.scan.outputs.malware-scan-path }}
         run: |
           set -euo pipefail
           jq -e '.spdxVersion == "SPDX-2.3" and (.packages | length) > 0' "$SBOM"
           jq -e '.bomFormat == "CycloneDX" and (.components | length) > 0' "$CYCLONEDX"
           jq -e '.result.verified == 0 and .scanner.version != ""' "$SECRETS"
+          # A fresh signature database and every file of the image scanned, clean.
+          jq -e '.result.infected == 0 and .result.scannedFiles > 100 and (.scanner.database.version | test("^[0-9]+$"))' "$MALWARE"
           # The fixture's statement, pinned to the scanned digest under the subject name.
           jq -e '.statements | length == 1 and (.[0].products[0]["@id"]
             == "pkg:oci/static@sha256%3Aaafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931?repository_url=gcr.io/distroless/static")' "$VEX"
+
+  # Verifies a published release image's build provenance against the
+  # Build Level 3 policy and writes the summary, without signing it.
+  attest-verification-summary:
+    name: Attest verification summary (dry run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify archestra/platform 1.4.37
+        id: summary
+        uses: $/actions/attest-verification-summary
+        with:
+          image: docker.io/archestra/platform@sha256:46de5d667fa9b89ecc693516efdf1003452a95e9696159fb9262a8754f727f9c
+          subject-name: docker.io/archestra/platform
+          repository: archestra-ai/archestra
+          attest: "false"
+      - name: Check the summary
+        env:
+          SUMMARY: ${{ steps.summary.outputs.summary-path }}
+        run: |
+          set -euo pipefail
+          jq -e '.verificationResult == "PASSED" and .verifiedLevels == ["SLSA_BUILD_LEVEL_3"] and (.inputAttestations | length) > 0' "$SUMMARY"
 
   base-image-signatures:
     # The supply-chain policy's base-image check against real registries and

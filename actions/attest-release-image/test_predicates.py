@@ -81,6 +81,47 @@ class PredicateTests(unittest.TestCase):
         self.assertEqual(predicate["result"]["detectors"], [])
         self.assertEqual(predicate["scanner"], {"uri": predicates.TRUFFLEHOG_URI, "version": "3.99.8"})
 
+    def malware(self, lines, *extra):
+        log = self.root / "clamscan.log"
+        log.write_text("\n".join(lines) + "\n")
+        predicate = self.root / "malware.json"
+        status, output = self.run_main("malware", log, predicate, "--image", f"ghcr.io/x/app@sha256:{DIGEST}",
+                                       "--version", "1.5.3", "--database", "28189", *TIMES, *extra)
+        return status, output, json.loads(predicate.read_text())
+
+    def summary(self, scanned, infected):
+        return ["", "----------- SCAN SUMMARY -----------", "Known viruses: 3628278", "Engine version: 1.5.3",
+                "Scanned directories: 100", f"Scanned files: {scanned}", f"Infected files: {infected}",
+                "Data scanned: 12.00 MiB", "Time: 8.123 sec (0 m 8 s)"]
+
+    def test_a_clean_image_attests_its_scan_and_signature_database(self):
+        status, _, predicate = self.malware(self.summary(960, 0))
+        self.assertEqual(status, 0)
+        self.assertEqual(predicate["result"], {"scannedFiles": 960, "scannedDirectories": 100, "infected": 0,
+                                               "errors": 0, "detections": []})
+        self.assertEqual(predicate["scanner"], {"uri": predicates.CLAMAV_URI, "version": "1.5.3",
+                                                "database": {"version": "28189", "signatures": 3628278}})
+
+    def test_malware_stops_the_release_unless_recorded(self):
+        lines = ["/scan/opt/app/eicar.com: Eicar-Test-Signature FOUND",
+                 "/scan/etc/unreadable: Access denied ERROR", *self.summary(961, 1)]
+        status, output, predicate = self.malware(lines)
+        self.assertEqual(status, 2)
+        self.assertIn("/opt/app/eicar.com matches Eicar-Test-Signature", output)
+        # Paths are the image's, not where the scan mounted it.
+        self.assertEqual(predicate["result"]["detections"], [{"path": "/opt/app/eicar.com", "signature": "Eicar-Test-Signature"}])
+        self.assertEqual(predicate["result"]["errors"], 1)
+        status, _, predicate = self.malware(lines, "--on-detection", "record")
+        self.assertEqual(status, 0)
+        self.assertEqual(predicate["policy"], {"failOn": "nothing"})
+
+    def test_an_unfinished_scan_is_not_attested(self):
+        log = self.root / "clamscan.log"
+        log.write_text("/scan/opt/app/eicar.com: Eicar-Test-Signature FOUND\n")
+        with self.assertRaisesRegex(ValueError, "no clamscan summary"):
+            predicates.main(["malware", str(log), str(self.root / "m.json"), "--image", f"ghcr.io/x/app@sha256:{DIGEST}",
+                             "--version", "1.5.3", "--database", "1", *TIMES])
+
     def test_vulnerability_report_is_wrapped_in_the_cosign_predicate(self):
         report = self.root / "scout.json"
         report.write_text('{"runs": [{"results": []}]}')

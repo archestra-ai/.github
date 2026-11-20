@@ -8,6 +8,14 @@
       --on-verified fail (the default) a verified finding exits 2, so nothing
       is attested and the release stops.
 
+  malware <clamscan.log> <predicate.json> --image REF --version V
+          --database V --started T --finished T [--on-detection fail|record]
+      Reads clamscan's output (-i: only detections, then its summary) into
+      the malware scan predicate: file counts, the signature database, and
+      each detection's signature and path. With --on-detection fail (the
+      default) a detection exits 2, so nothing is attested and the release
+      stops.
+
   vulnerabilities <report.json> <predicate.json> --scanner-uri URI
           --scanner-version V --started T --finished T
       Wraps a scanner's JSON report in the cosign vulnerability predicate
@@ -34,6 +42,10 @@ import sys
 from collections import Counter
 
 SECRET_SCAN_TYPE = "https://archestra.ai/attestations/secret-scan/v1"
+MALWARE_SCAN_TYPE = "https://archestra.ai/attestations/malware-scan/v1"
+CLAMAV_URI = "https://www.clamav.net"
+DETECTION = re.compile(r"^(?P<path>/.*): (?P<signature>\S+) FOUND$")
+SCAN_ERROR = re.compile(r"^(?P<path>/.*): (?P<reason>.+) ERROR$")
 VULNERABILITY_TYPE = "https://cosign.sigstore.dev/attestation/vuln/v1"
 TRUFFLEHOG_URI = "https://github.com/trufflesecurity/trufflehog"
 # Exit status of `vex` when no statement names the image: nothing to attest.
@@ -53,6 +65,16 @@ def main(argv):
     secrets.add_argument("--started", required=True)
     secrets.add_argument("--finished", required=True)
     secrets.add_argument("--on-verified", choices=["fail", "record"], default="fail")
+    malware = commands.add_parser("malware")
+    malware.add_argument("log")
+    malware.add_argument("predicate")
+    malware.add_argument("--image", required=True)
+    malware.add_argument("--version", required=True)
+    malware.add_argument("--database", required=True)
+    malware.add_argument("--root", default="/scan", help="Where the image's files were mounted for the scan")
+    malware.add_argument("--started", required=True)
+    malware.add_argument("--finished", required=True)
+    malware.add_argument("--on-detection", choices=["fail", "record"], default="fail")
     vulnerabilities = commands.add_parser("vulnerabilities")
     vulnerabilities.add_argument("report")
     vulnerabilities.add_argument("predicate")
@@ -72,6 +94,8 @@ def main(argv):
     args = parser.parse_args(argv)
     if args.command == "secrets":
         return secrets_predicate(args)
+    if args.command == "malware":
+        return malware_predicate(args)
     if args.command == "vulnerabilities":
         return vulnerability_predicate(args)
     if args.command == "vex":
@@ -115,6 +139,49 @@ def secrets_predicate(args):
         names = sorted({name for name, result in detectors if result == "verified"})
         print(f"::error::{args.image} holds {counts['verified']} live secret(s) ({', '.join(names)}). "
               "Rotate them and rebuild; nothing was attested.")
+        return 2
+    return 0
+
+
+def malware_predicate(args):
+    detections, errors, summary = [], 0, {}
+    with open(args.log, encoding="utf-8", errors="replace") as log:
+        for line in log:
+            line = line.rstrip("\n")
+            if match := DETECTION.match(line):
+                path = match["path"].removeprefix(args.root) or "/"
+                detections.append({"path": path, "signature": match["signature"]})
+            elif SCAN_ERROR.match(line):
+                errors += 1
+            elif ": " in line:
+                key, value = line.split(": ", 1)
+                summary[key.strip()] = value.strip()
+    if "Scanned files" not in summary or "Infected files" not in summary:
+        raise ValueError(f"{args.log} has no clamscan summary; the scan did not finish")
+    infected = int(summary["Infected files"])
+    if infected != len(detections):
+        raise ValueError(f"clamscan reported {infected} infected file(s) but listed {len(detections)}")
+    predicate = {
+        "scanner": {"uri": CLAMAV_URI, "version": args.version,
+                    "database": {"version": args.database, "signatures": int(summary.get("Known viruses", 0))}},
+        "image": args.image,
+        "policy": {"failOn": "detection" if args.on_detection == "fail" else "nothing"},
+        "result": {
+            "scannedFiles": int(summary["Scanned files"]),
+            "scannedDirectories": int(summary.get("Scanned directories", 0)),
+            "infected": infected,
+            "errors": errors,
+            "detections": sorted(detections, key=lambda d: (d["path"], d["signature"])),
+        },
+        "metadata": {"scanStartedOn": args.started, "scanFinishedOn": args.finished},
+    }
+    write_json(args.predicate, predicate)
+    print(f"Malware scan of {args.image}: {predicate['result']['scannedFiles']} files, {infected} detection(s), "
+          f"{errors} unreadable (ClamAV {args.version}, database {args.database})")
+    if infected and args.on_detection == "fail":
+        for detection in predicate["result"]["detections"]:
+            print(f"::error::{args.image}: {detection['path']} matches {detection['signature']}")
+        print("::error::Malware found in the image; nothing was attested.")
         return 2
     return 0
 
