@@ -13,8 +13,8 @@
 #   signed by this workflow, which the publisher accepts for those types only.
 #   A secret verified as live stops the release before the request is sent.
 #   With `vex-document`, each image's statements in the project's OpenVEX
-#   document (read from the release commit) are attested there too, pinned to
-#   its digest. The caller's job then also grants `contents: read`.
+#   document (read from the release commit, or from `vex-ref`) are attested
+#   there too, pinned to its digest. The caller's job then also grants `contents: read`.
 #   The caller's job grants `id-token: write`, `attestations: write` and
 #   `packages: read` (to pull the staged images); dry runs skip it.
 # - The request names this run attempt (`<run>-<attempt>`). The publisher
@@ -110,6 +110,13 @@ on:
           job. Empty attests no VEX.
         type: string
         default: ""
+      vex-ref:
+        description: >-
+          Branch, tag or commit of the calling repository to read vex-document from, for example main,
+          so a release built from a maintenance branch attests the statements merged since it was cut.
+          Empty reads the release commit.
+        type: string
+        default: ""
       asset-artifact:
         description: Artifact of the calling run holding the release asset files (a Terraform provider's goreleaser output). Empty sends no assets.
         type: string
@@ -203,12 +210,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
-      # Only the VEX document, from the commit the release was built from.
+      # Only the VEX document, from the commit the release was built from or
+      # from vex-ref.
       - name: Check out the VEX document
         if: ${{ inputs.vex-document != '' }}
         uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.vex-ref || github.sha }}
           path: release-publish/source
           sparse-checkout: ${{ inputs.vex-document }}
           sparse-checkout-cone-mode: false
