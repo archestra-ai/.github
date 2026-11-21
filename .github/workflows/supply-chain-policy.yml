@@ -98,7 +98,8 @@ jobs:
       # signature, or be listed as unsigned in base-images.toml (see "Base
       # image signatures" in the README). Only references new since the base
       # commit are checked. gh reads attestations with the job token; cosign
-      # and notation need no token.
+      # and notation need no token, except to pull from dhi.io (Docker
+      # Hardened Images), which needs a Docker login.
       - name: Find Dockerfiles
         id: dockerfiles
         if: ${{ !cancelled() }}
@@ -122,6 +123,11 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           GH_TOKEN: ${{ github.token }}
+          # Docker Hardened Images: an organization access token of the
+          # `archestra` Docker organization, shared with the repositories that
+          # build on dhi.io. Elsewhere it is empty and a dhi.io image fails to
+          # verify, saying the pull was unauthorized.
+          DHI_TOKEN: ${{ secrets.DOCKERHUB_DHI_TOKEN }}
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: credential.helper
           GIT_CONFIG_VALUE_0: ""
@@ -133,4 +139,11 @@ jobs:
             exit 1
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          # A Docker configuration of this step's own, removed when it ends.
+          export DOCKER_CONFIG="$RUNNER_TEMP/base-image-docker"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          mkdir -p "$DOCKER_CONFIG"
+          if [ -n "$DHI_TOKEN" ]; then
+            printf '%s' "$DHI_TOKEN" | docker login dhi.io --username archestra --password-stdin >/dev/null
+          fi
           python3 ../.org-github/supply-chain-policy/verify_base_images.py . --base-ref "$BASE_SHA"

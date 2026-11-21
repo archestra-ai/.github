@@ -14,7 +14,9 @@
 #                      `bundle_from_oci = true` reads the attestation from the
 #                      registry instead of the GitHub API.
 #   method = "cosign"  `cosign verify` of a keyless signature. Set `issuer`
-#                      and `identity` (or `identity_regexp`).
+#                      and `identity` (or `identity_regexp`). For a
+#                      publisher that signs with a key, set `key` (a public
+#                      key under trust/) instead.
 #   method = "notation" `notation verify` of a Notary Project signature. Set
 #                      `ca` (the root certificate, a PEM file under trust/),
 #                      `identity` (the signing certificate's subject) and,
@@ -63,6 +65,21 @@ repository = "gcr.io/distroless/*"
 method = "cosign"
 issuer = "https://accounts.google.com"
 identity = "keyless@distroless.iam.gserviceaccount.com"
+
+# Docker Hardened Images: Docker signs each image index with its DHI key and
+# logs the signature in Rekor. The key is dhi-2.pub from Docker's keyring
+# (github.com/docker-hardened-images/keyring, also served as
+# https://dhi.io/keyring/2.pub and latest.pub); SHA-256 of the file:
+#   1d02bbccf149283ae6288d96264dcad3fb23ee1911d90324a48eab28e4cb8a5f
+# When Docker rotates to a new key, switch `key` here once the pinned dhi.io
+# digests are re-signed with it.
+# Pulling dhi.io needs a Docker login: the check signs in with the
+# DOCKERHUB_DHI_TOKEN organization secret where the repository has access
+# to it.
+[[signed]]
+repository = "dhi.io/*"
+method = "cosign"
+key = "trust/docker-hardened-images-2.pub"
 
 # Microsoft signs MCR images with Notary Project signatures from its supply
 # chain root, timestamped by its Time-Stamp service. Both roots come from

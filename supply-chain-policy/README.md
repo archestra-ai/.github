@@ -105,11 +105,16 @@ Dockerfile pulls (`FROM` and `COPY --from`) against
 [`base-images.toml`](base-images.toml):
 
 - **Signed** entries say how the publisher signs, and whose signature counts:
-  a GitHub artifact attestation (`gh attestation verify`), a keyless cosign
-  signature (`cosign verify`), or a Notary Project signature from a pinned
-  root certificate (`notation verify`, as Microsoft signs MCR images; the
-  roots live in [`trust/`](trust)). The image must verify, or the check
+  a GitHub artifact attestation (`gh attestation verify`), a cosign
+  signature, keyless or by a pinned public key (`cosign verify`, as Docker
+  signs its Hardened Images), or a Notary Project signature from a pinned
+  root certificate (`notation verify`, as Microsoft signs MCR images). Keys
+  and roots live in [`trust/`](trust). The image must verify, or the check
   fails.
+- **Registries that need a login:** `dhi.io` serves Docker Hardened Images
+  only to a signed-in Docker account. The check signs in with the
+  `DOCKERHUB_DHI_TOKEN` organization secret in the repositories that have
+  access to it; give a repository access before it builds on `dhi.io`.
 - **Unsigned** entries are the ignore list: publishers that sign nothing we
   can verify, each with its reason. Docker Official Images (`node`, `python`,
   `golang`, `rust`, `debian`, ...) are here: they ship provenance, but
