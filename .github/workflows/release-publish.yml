@@ -168,7 +168,10 @@ on:
 permissions: {}
 
 jobs:
-  # One matrix entry per image: {"name": public name, "image": staged reference}.
+  # One matrix entry per image: {"label": its key in images, "name": public name,
+  # "image": staged reference}.
+  # A variant (docker.io/archestra/platform:slim) is attested under its
+  # repository's name and staged as <image>-<variant>, as the publisher reads it.
   contents-plan:
     name: Plan image contents attestations
     if: ${{ !inputs.smoke }}
@@ -187,13 +190,14 @@ jobs:
           set -euo pipefail
           [[ "$STAGING" =~ ^ghcr\.io/archestra-ai/[a-z0-9._/-]+$ ]] || { echo "::error::Unexpected staging: $STAGING"; exit 1; }
           images=$(jq -c --arg staging "$STAGING" '[to_entries[]
-            | {name: .key, image: ($staging + "/" + (.key | split("/") | last) + "@" + .value)}]' <<<"$IMAGES")
+            | {label: .key, name: (.key | split(":") | first),
+               image: ($staging + "/" + (.key | split("/") | last | sub(":"; "-")) + "@" + .value)}]' <<<"$IMAGES")
           jq -e 'length > 0 and all(.[]; .image | test("@sha256:[0-9a-f]{64}$"))' <<<"$images" > /dev/null \
             || { echo "::error::images must map public names to sha256 digests"; exit 1; }
           echo "images=$images" >> "$GITHUB_OUTPUT"
 
   attest-contents:
-    name: Attest contents of ${{ matrix.image.name }}
+    name: Attest contents of ${{ matrix.image.label }}
     needs: contents-plan
     runs-on: ubuntu-latest
     timeout-minutes: 30
