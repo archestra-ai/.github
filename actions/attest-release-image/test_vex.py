@@ -100,10 +100,11 @@ class VexTests(unittest.TestCase):
         rendered = json.loads(self.run_main("render", "--image", f"docker.io/archestra/platform:1.4.35@sha256:{DIGEST}"))
         purl = f"pkg:oci/platform@sha256%3A{DIGEST}?repository_url=docker.io/archestra/platform"
         self.assertEqual([s["vulnerability"]["name"] for s in rendered["statements"]], ["CVE-2026-1003"])
+        # The image with the package inside it, and the package on its own, which Docker Scout matches.
         self.assertEqual(rendered["statements"][0]["products"], [{
             "@id": purl, "identifiers": {"purl": purl}, "hashes": {"sha-256": DIGEST},
             "subcomponents": [{"@id": "pkg:golang/golang.org/x/net@v0.30.0"}],
-        }])
+        }, {"@id": "pkg:golang/golang.org/x/net@v0.30.0"}])
         with self.assertRaises(vex.Invalid):
             self.run_main("render", "--image", "docker.io/archestra/platform:latest")
 

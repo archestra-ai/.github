@@ -208,6 +208,29 @@ def set_statement(args):
     print(f"{name}: {args.status} for {', '.join(args.product)} (document version {document['version']})")
 
 
+def with_inherited(document, inherited):
+    """The document plus the statements carried over from base images (base_vex.py), minus each
+    package a statement of the project already gives a status for the same vulnerability and image."""
+    statements = list(document["statements"])
+    for statement in inherited:
+        check_statement(statement, "a statement carried over from a base image")
+        products = []
+        for product in statement["products"]:
+            own = [p for s in statements if s["vulnerability"]["name"] == statement["vulnerability"]["name"]
+                   for p in s["products"] if p["@id"] == product["@id"]]
+            if any(not p.get("subcomponents") for p in own):
+                continue  # The project's statement covers every package of the image.
+            taken = {c["@id"] for p in own for c in p["subcomponents"]}
+            rest = [c for c in product["subcomponents"] if c["@id"] not in taken]
+            if rest:
+                products.append({**product, "subcomponents": rest})
+        if products:
+            statements.append({**statement, "products": products})
+    merged = {**document, "statements": statements}
+    check_document(merged)
+    return merged
+
+
 def rendered(document, image):
     """The statements about `image`, pinned to its digest, as attest-release-image attests them."""
     match = IMAGE.fullmatch(image)
@@ -224,7 +247,10 @@ def rendered(document, image):
             product = {"@id": purl, "identifiers": {"purl": purl}, "hashes": {"sha-256": digest}}
             if subcomponents:
                 product["subcomponents"] = subcomponents
-            statements.append({**statement, "products": [product]})
+            # Each package as a product of its own too: Docker Scout matches only
+            # those, not an image's subcomponents. The attestation is about this
+            # image's digest either way.
+            statements.append({**statement, "products": [product, *({"@id": c["@id"]} for c in subcomponents)]})
     return {
         "@context": CONTEXT,
         "@id": f"{document['@id']}#{name}@sha256:{digest}",

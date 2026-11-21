@@ -21,12 +21,15 @@
       Wraps a scanner's JSON report in the cosign vulnerability predicate
       (https://cosign.sigstore.dev/attestation/vuln/v1).
 
-  vex <document> <predicate.json> --image REF --subject-name NAME
+  vex <document> <predicate.json> --image REF --subject-name NAME [--inherited FILE]
       Selects the statements of the project's OpenVEX document whose product
       is this image (`pkg:oci/<last segment of the public name>`, no version)
       and writes them as an OpenVEX document about the image's digest under its
-      public name (https://openvex.dev/ns/v0.2.0). Exits 3, writing nothing,
-      when no statement names the image; an invalid statement exits 1.
+      public name (https://openvex.dev/ns/v0.2.0). --inherited adds the
+      statements base_vex.py carried over from the image's bases, except for a
+      package the document already gives a status for. An empty <document>
+      attests those alone. Exits 3, writing nothing, when no statement names
+      the image; an invalid statement exits 1.
 
   subjects <image> <subject name> <subjects file>
       Writes the attestation subject for the image's digest under its public
@@ -87,6 +90,7 @@ def main(argv):
     vex.add_argument("predicate")
     vex.add_argument("--image", required=True)
     vex.add_argument("--subject-name", required=True)
+    vex.add_argument("--inherited", default="", help="Statements base_vex.py carried over from the image's bases")
     subjects = commands.add_parser("subjects")
     subjects.add_argument("image")
     subjects.add_argument("name")
@@ -216,10 +220,13 @@ def vex_predicate(args):
         raise ValueError(f"subject name must be a repository without tag or digest: {args.subject_name}")
     vex = vex_module()
     try:
-        document = vex.load(args.document)
+        document = vex.load(args.document) if args.document else release_document(vex)
+        if args.inherited:
+            with open(args.inherited, encoding="utf-8") as inherited:
+                document = vex.with_inherited(document, json.load(inherited))
         predicate = vex.rendered(document, f"{args.subject_name}@sha256:{match['digest']}")
     except vex.Invalid as error:
-        raise ValueError(f"{args.document}: {error}") from None
+        raise ValueError(f"{args.document or args.inherited}: {error}") from None
     product_id = f"pkg:oci/{args.subject_name.rsplit('/', 1)[-1]}"
     if not predicate["statements"]:
         print(f"No VEX statement names {product_id} in {args.document}")
@@ -229,6 +236,18 @@ def vex_predicate(args):
     write_json(args.predicate, predicate)
     print(f"VEX for {args.subject_name}@sha256:{match['digest']}: {len(predicate['statements'])} statement(s)")
     return 0
+
+
+def release_document(vex):
+    """An empty document, for an image whose project keeps no VEX document of its own."""
+    return {
+        "@context": vex.CONTEXT,
+        "@id": run_url() or "https://github.com/archestra-ai/.github/actions/attest-release-image",
+        "author": "Archestra release automation",
+        "timestamp": vex.timestamp(),
+        "version": 1,
+        "statements": [],
+    }
 
 
 def write_subjects(args):

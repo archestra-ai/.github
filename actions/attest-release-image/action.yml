@@ -2,8 +2,9 @@ name: Attest a release image
 description: >-
   Sign SBOMs (SPDX and CycloneDX), a secret scan, a malware scan, an image benchmark (the CIS Docker Benchmark's
   image checks) and (when given) a vulnerability scan and the image's OpenVEX statements for one release image,
-  under its public name. A live secret, malware, or a benchmark failure no waiver covers stops the job before
-  anything is attested.
+  under its public name. The OpenVEX statements are the project's (vex-document) plus those Docker states for the
+  image's Docker Hardened Images bases (base-images-from). A live secret, malware, or a benchmark failure no
+  waiver covers stops the job before anything is attested.
 inputs:
   image:
     description: Where to pull the image from, pinned by digest (for example ghcr.io/archestra-ai/ci/platform@sha256:...). Log in to its registry first.
@@ -28,6 +29,15 @@ inputs:
       Path to the project's OpenVEX document (https://openvex.dev/ns/v0.2.0). The statements whose
       product is `pkg:oci/<last segment of subject-name>` are attested for this digest. Empty, or no
       statement naming the image, attests no VEX.
+    default: ""
+  base-images-from:
+    description: >-
+      Dockerfiles (paths, one per line) the image is built from. Docker signs an OpenVEX attestation for each
+      Docker Hardened Images image; for each `FROM dhi.io/...@sha256:...` base they pin, its statements that are
+      facts about a package build (`fixed`; `not_affected` with vulnerable_code_not_present or
+      component_not_present) are attested for this image too, for each package whose exact build (the apk
+      database's name, version and checksum) the image holds on every platform. A statement of vex-document wins
+      for the same vulnerability and package. Log in to dhi.io first. Empty carries nothing over.
     default: ""
   on-verified-secret:
     description: "`fail` (default): a secret trufflehog verifies as live stops the job, unattested. `record`: attest the counts and continue."
@@ -119,7 +129,7 @@ runs:
           echo "vex=$work/vex.json"
         } >> "$GITHUB_OUTPUT"
 
-    - name: Install syft and trufflehog
+    - name: Install syft, trufflehog and oras
       id: tools
       shell: bash
       env:
@@ -229,12 +239,43 @@ runs:
         python3 -I "$PREDICATES" vulnerabilities "$REPORT" "$PREDICATE" \
           --scanner-uri "$SCANNER_URI" --scanner-version "$SCANNER_VERSION" --started "$finished" --finished "$finished"
 
+    - name: Install cosign
+      if: ${{ inputs.base-images-from != '' }}
+      shell: bash
+      env:
+        INSTALL: ${{ github.action_path }}/../../supply-chain-policy/install-cosign.sh
+      run: bash "$INSTALL"
+
+    - name: Carry over the bases' VEX statements
+      id: base-vex
+      if: ${{ inputs.base-images-from != '' }}
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        SUBJECT_NAME: ${{ inputs.subject-name }}
+        PLATFORM: ${{ inputs.platform }}
+        DOCKERFILES: ${{ inputs.base-images-from }}
+        BIN: ${{ steps.paths.outputs.bin }}
+        WORK: ${{ steps.paths.outputs.work }}
+        BASE_VEX: ${{ github.action_path }}/base_vex.py
+      run: |
+        set -euo pipefail
+        export PATH="$BIN:$PATH"
+        arguments=()
+        while IFS= read -r dockerfile; do
+          [ -n "$dockerfile" ] && arguments+=(--dockerfile "$dockerfile")
+        done <<<"$DOCKERFILES"
+        python3 -I "$BASE_VEX" inherit --image "$IMAGE" --subject-name "$SUBJECT_NAME" --platform "$PLATFORM" \
+          "${arguments[@]}" --output "$WORK/inherited-vex.json"
+        echo "inherited=$WORK/inherited-vex.json" >> "$GITHUB_OUTPUT"
+
     - name: Select the VEX statements
       id: vex
-      if: ${{ inputs.vex-document != '' }}
+      if: ${{ inputs.vex-document != '' || inputs.base-images-from != '' }}
       shell: bash
       env:
         DOCUMENT: ${{ inputs.vex-document }}
+        INHERITED: ${{ steps.base-vex.outputs.inherited }}
         IMAGE: ${{ inputs.image }}
         SUBJECT_NAME: ${{ inputs.subject-name }}
         PREDICATE: ${{ steps.paths.outputs.vex }}
@@ -243,7 +284,8 @@ runs:
         set -euo pipefail
         # Exit 3: no statement names this image, so there is nothing to attest.
         status=0
-        python3 -I "$PREDICATES" vex "$DOCUMENT" "$PREDICATE" --image "$IMAGE" --subject-name "$SUBJECT_NAME" || status=$?
+        python3 -I "$PREDICATES" vex "$DOCUMENT" "$PREDICATE" --image "$IMAGE" --subject-name "$SUBJECT_NAME" \
+          --inherited "$INHERITED" || status=$?
         case "$status" in
           0) echo "attest=true" >> "$GITHUB_OUTPUT" ;;
           3) echo "attest=false" >> "$GITHUB_OUTPUT" ;;
