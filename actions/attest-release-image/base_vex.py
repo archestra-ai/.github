@@ -81,7 +81,8 @@ def dhi_bases(dockerfiles):
     bases = []
     for path in dockerfiles:
         for image in policy.dockerfile_images(str(path), path.read_text(encoding="utf-8")):
-            if image.resolved and image.resolved.startswith("dhi.io/"):
+            # The registry host itself, not a prefix of the reference.
+            if image.resolved and image.resolved.split("/", 1)[0] == "dhi.io":
                 if not PINNED.match(image.resolved):
                     raise ValueError(f"{path}:{image.line}: {image.resolved} is not pinned by digest")
                 bases.append(image.resolved)
