@@ -9,9 +9,11 @@
 #   accepts provenance only from the project's release workflow, never this
 #   file.
 # - What each image contains is attested here (the attest-contents job,
-#   actions/attest-release-image): SPDX and CycloneDX SBOMs and a secret scan,
-#   signed by this workflow, which the publisher accepts for those types only.
-#   A secret verified as live stops the release before the request is sent.
+#   actions/attest-release-image): SPDX and CycloneDX SBOMs, a secret scan and
+#   a ClamAV malware scan, signed by this workflow, which the publisher accepts
+#   for those types only. A secret verified as live, or malware, stops the
+#   release before the request is sent. actions/attest-verification-summary
+#   signs a SLSA verification summary of each image's build provenance.
 #   With `vex-document`, each image's statements in the project's OpenVEX
 #   document (read from the release commit, or from `vex-ref`) are attested
 #   there too, pinned to its digest. The caller's job then also grants `contents: read`.
@@ -223,11 +225,19 @@ jobs:
           persist-credentials: false
 
       - name: Attest the image contents
-        uses: archestra-ai/.github/actions/attest-release-image@v1.33.0
+        uses: archestra-ai/.github/actions/attest-release-image@v1.36.0
         with:
           image: ${{ matrix.image.image }}
           subject-name: ${{ matrix.image.name }}
           vex-document: ${{ inputs.vex-document != '' && format('release-publish/source/{0}', inputs.vex-document) || '' }}
+
+      # Checks the image's merge-queue provenance against the SLSA Build L3
+      # policy and signs the result, so a consumer verifies one attestation.
+      - name: Attest the verification summary
+        uses: archestra-ai/.github/actions/attest-verification-summary@v1.36.0
+        with:
+          image: ${{ matrix.image.image }}
+          subject-name: ${{ matrix.image.name }}
 
   publish:
     name: Publish through release-publisher

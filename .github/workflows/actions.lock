@@ -19,7 +19,7 @@ workflows:
         - 'actions/download-artifact@v8.0.2'
         - 'actions/upload-artifact@v7.0.2'
         - 'archestra-ai/.github@v1.25.2'
-        - 'archestra-ai/.github@v1.33.0'
+        - 'archestra-ai/.github@v1.36.0'
     '.github/workflows/release.yml': []
     '.github/workflows/shared-actions.yml':
         - 'actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6'
@@ -92,9 +92,9 @@ dependencies:
         repo_id: 1192166927
         uses:
             - 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510'
-    'archestra-ai/.github@v1.33.0':
-        ref: 'v1.33.0'
-        commit: 'sha1-1bf4a7d38b15e9a4f48a1d4ad476ad4e4b932e00'
+    'archestra-ai/.github@v1.36.0':
+        ref: 'v1.36.0'
+        commit: 'sha1-6764cc7520a7564215fc80cf0bf971515bd832c4'
         owner_id: 216022683
         repo_id: 1192166927
         uses:
