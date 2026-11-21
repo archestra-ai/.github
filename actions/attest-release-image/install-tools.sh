@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs syft and trufflehog from their GitHub releases, pinned by SHA-256.
+# Installs syft, trufflehog and oras from their GitHub releases, pinned by SHA-256.
 # Bump a version and its hash together, from the release's checksums file,
 # once the release is at least seven days old.
 #
@@ -10,6 +10,8 @@ SYFT_VERSION=1.57.0
 SYFT_SHA256=9c077a7d43029b3b13e98a8db720661e700c4d58db6352153a06395ae4a2a704
 TRUFFLEHOG_VERSION=3.99.8
 TRUFFLEHOG_SHA256=7c3b02f160f28929a467e29e20fba98746e0729f6e37c3c25761e4f8789abe08
+ORAS_VERSION=1.3.6
+ORAS_SHA256=66fb0ad7206f3f6fa77ed5b552049d364ccf4b50b1684554f731f76302b52ca0
 
 bin=$1
 case "$(uname -s)-$(uname -m)" in
@@ -34,6 +36,9 @@ fetch_tool syft \
 fetch_tool trufflehog \
   "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" \
   "$TRUFFLEHOG_SHA256"
+fetch_tool oras \
+  "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz" \
+  "$ORAS_SHA256"
 
 {
   echo "syft-version=$SYFT_VERSION"

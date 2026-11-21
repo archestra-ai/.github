@@ -160,8 +160,30 @@ class PredicateTests(unittest.TestCase):
         # Only the statement about this image, with the other image's product dropped.
         self.assertEqual([s["vulnerability"]["name"] for s in predicate["statements"]], ["CVE-2026-0001"])
         self.assertEqual(predicate["statements"][0]["products"],
-                         [{"@id": purl, "identifiers": {"purl": purl}, "hashes": {"sha-256": DIGEST}, "subcomponents": [npm]}])
+                         [{"@id": purl, "identifiers": {"purl": purl}, "hashes": {"sha-256": DIGEST}, "subcomponents": [npm]}, npm])
         self.assertEqual(predicate["statements"][0]["impact_statement"], "Only extracts trusted archives.")
+
+    def test_vex_attests_statements_carried_over_from_the_bases_with_or_without_a_document(self):
+        git = {"@id": "pkg:apk/alpine/git@2.52.1-r0"}
+        carried = self.root / "inherited.json"
+        carried.write_text(json.dumps([{
+            "vulnerability": {"name": "CVE-2025-66413"}, "status": "not_affected",
+            "justification": "vulnerable_code_not_present", "impact_statement": "Docker Hardened Images: git lacks the code.",
+            "timestamp": "2026-05-12T16:01:54Z", "products": [{"@id": "pkg:oci/platform", "subcomponents": [git]}]}]))
+        image = ["--image", f"ghcr.io/archestra-ai/ci/platform@sha256:{DIGEST}", "--subject-name", "docker.io/archestra/platform"]
+        predicate = self.root / "vex.json"
+        status, _ = self.run_main("vex", "", predicate, *image, "--inherited", carried)
+        alone = json.loads(predicate.read_text())
+        self.assertEqual(status, 0)
+        self.assertEqual(alone["author"], "Archestra release automation")
+        self.assertEqual([s["products"][0]["subcomponents"] for s in alone["statements"]], [[git]])
+        # With the project's document: its statements, then the carried-over one.
+        _, _, merged = self.vex([{"vulnerability": {"name": "CVE-2026-0001"}, "status": "fixed",
+                                  "products": [{"@id": "pkg:oci/platform"}]}])
+        status, _ = self.run_main("vex", self.root / "project.openvex.json", predicate, *image, "--inherited", carried)
+        merged = json.loads(predicate.read_text())
+        self.assertEqual([s["vulnerability"]["name"] for s in merged["statements"]], ["CVE-2026-0001", "CVE-2025-66413"])
+        self.assertEqual(merged["author"], "Archestra")
 
     def test_vex_attests_nothing_for_an_image_no_statement_names(self):
         status, output, predicate = self.vex([
