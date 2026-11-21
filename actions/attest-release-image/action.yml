@@ -1,8 +1,9 @@
 name: Attest a release image
 description: >-
-  Sign SBOMs (SPDX and CycloneDX), a secret scan, a malware scan and (when given) a vulnerability scan and the
-  image's OpenVEX statements for one release image, under its public name. A live secret or malware in the image
-  stops the job before anything is attested.
+  Sign SBOMs (SPDX and CycloneDX), a secret scan, a malware scan, an image benchmark (the CIS Docker Benchmark's
+  image checks) and (when given) a vulnerability scan and the image's OpenVEX statements for one release image,
+  under its public name. A live secret, malware, or a benchmark failure no waiver covers stops the job before
+  anything is attested.
 inputs:
   image:
     description: Where to pull the image from, pinned by digest (for example ghcr.io/archestra-ai/ci/platform@sha256:...). Log in to its registry first.
@@ -40,6 +41,23 @@ inputs:
   on-malware:
     description: "`fail` (default): a ClamAV detection stops the job, unattested. `record`: attest the detections and continue."
     default: fail
+  image-benchmark:
+    description: >-
+      `true` (default): check the image with Dockle (the CIS Docker Benchmark's image checks and Dockle's own) and
+      attest the result (https://archestra.ai/attestations/image-benchmark/v1).
+    default: "true"
+  benchmark-key:
+    description: The image's key in the release request, which benchmark waivers match. Empty uses subject-name.
+    default: ""
+  benchmark-waivers:
+    description: >-
+      Path to the project's benchmark waivers:
+      `{"waivers": [{"images": ["<key or glob>"], "check": "CIS-DI-0001", "reason": "..."}]}`. A waived check
+      is attested with its reason. Empty waives nothing.
+    default: ""
+  on-benchmark-failure:
+    description: "`fail` (default): a FATAL or WARN check no waiver covers stops the job, unattested. `record`: attest it and continue."
+    default: fail
   attest:
     description: "`false` builds the SBOM and runs the scans without signing anything (for tests)."
     default: "true"
@@ -53,6 +71,9 @@ outputs:
   secret-scan-path:
     description: The secret scan predicate.
     value: ${{ steps.paths.outputs.secrets }}
+  benchmark-path:
+    description: The image benchmark predicate (absent when no benchmark ran).
+    value: ${{ inputs.image-benchmark == 'true' && steps.paths.outputs.benchmark || '' }}
   malware-scan-path:
     description: The malware scan predicate (absent when no scan ran).
     value: ${{ steps.malware.outputs.attest == 'true' && steps.paths.outputs.malware || '' }}
@@ -70,6 +91,7 @@ runs:
         SUBJECT_NAME: ${{ inputs.subject-name }}
         ON_VERIFIED: ${{ inputs.on-verified-secret }}
         ON_MALWARE: ${{ inputs.on-malware }}
+        ON_BENCHMARK: ${{ inputs.on-benchmark-failure }}
         REPORT: ${{ inputs.vulnerability-report }}
         SCANNER_URI: ${{ inputs.vulnerability-scanner-uri }}
         SCANNER_VERSION: ${{ inputs.vulnerability-scanner-version }}
@@ -78,6 +100,7 @@ runs:
         set -euo pipefail
         case "$ON_VERIFIED" in fail|record) ;; *) echo "::error::on-verified-secret must be fail or record"; exit 1 ;; esac
         case "$ON_MALWARE" in fail|record) ;; *) echo "::error::on-malware must be fail or record"; exit 1 ;; esac
+        case "$ON_BENCHMARK" in fail|record) ;; *) echo "::error::on-benchmark-failure must be fail or record"; exit 1 ;; esac
         if [ -n "$REPORT" ] && { [ -z "$SCANNER_URI" ] || [ -z "$SCANNER_VERSION" ]; }; then
           echo "::error::vulnerability-report needs vulnerability-scanner-uri and vulnerability-scanner-version"; exit 1
         fi
@@ -91,11 +114,12 @@ runs:
           echo "cyclonedx=$work/sbom.cdx.json"
           echo "secrets=$work/secret-scan.json"
           echo "malware=$work/malware-scan.json"
+          echo "benchmark=$work/image-benchmark.json"
           echo "vulnerabilities=$work/vulnerabilities.json"
           echo "vex=$work/vex.json"
         } >> "$GITHUB_OUTPUT"
 
-    - name: Install syft and trufflehog
+    - name: Install syft, trufflehog and dockle
       id: tools
       shell: bash
       env:
@@ -147,6 +171,33 @@ runs:
           --version "$VERSION" --started "$started" --finished "$finished" --on-verified "$ON_VERIFIED" || status=$?
         rm -f "$WORK/findings.jsonl"
         exit "$status"
+
+    - name: Check the image against the benchmark
+      if: ${{ inputs.image-benchmark == 'true' }}
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        PLATFORM: ${{ inputs.platform }}
+        KEY: ${{ inputs.benchmark-key || inputs.subject-name }}
+        WAIVERS: ${{ inputs.benchmark-waivers }}
+        DOCKLE: ${{ steps.paths.outputs.bin }}/dockle
+        VERSION: ${{ steps.tools.outputs.dockle-version }}
+        WORK: ${{ steps.paths.outputs.work }}
+        PREDICATE: ${{ steps.paths.outputs.benchmark }}
+        ON_FAILURE: ${{ inputs.on-benchmark-failure }}
+        PREDICATES: ${{ github.action_path }}/predicates.py
+      run: |
+        set -euo pipefail
+        # Dockle reads the image from the Docker daemon, which holds the
+        # registry login; the malware scan below reuses the pull.
+        docker pull --quiet --platform "$PLATFORM" "$IMAGE" >/dev/null
+        started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        # Exit 0 whatever it finds: predicates.py applies the waivers and the policy.
+        "$DOCKLE" --format json --output "$WORK/dockle.json" --exit-code 0 --timeout 15m "$IMAGE" 2> "$WORK/dockle.log" \
+          || { tail -n 20 "$WORK/dockle.log"; echo "::error::dockle could not check $IMAGE"; exit 1; }
+        finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        python3 -I "$PREDICATES" benchmark "$WORK/dockle.json" "$PREDICATE" --image "$IMAGE" --key "$KEY" \
+          --version "$VERSION" --waivers "$WAIVERS" --started "$started" --finished "$finished" --on-failure "$ON_FAILURE"
 
     - name: Scan for malware
       id: malware
@@ -230,6 +281,14 @@ runs:
         subject-checksums: ${{ steps.paths.outputs.subjects }}
         predicate-type: https://archestra.ai/attestations/secret-scan/v1
         predicate-path: ${{ steps.paths.outputs.secrets }}
+
+    - name: Attest the image benchmark
+      if: ${{ inputs.attest == 'true' && inputs.image-benchmark == 'true' }}
+      uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+      with:
+        subject-checksums: ${{ steps.paths.outputs.subjects }}
+        predicate-type: https://archestra.ai/attestations/image-benchmark/v1
+        predicate-path: ${{ steps.paths.outputs.benchmark }}
 
     - name: Attest the malware scan
       if: ${{ inputs.attest == 'true' && steps.malware.outputs.attest == 'true' }}

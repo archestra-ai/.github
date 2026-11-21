@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs syft and trufflehog from their GitHub releases, pinned by SHA-256.
+# Installs syft, trufflehog and dockle from their GitHub releases, pinned by SHA-256.
 # Bump a version and its hash together, from the release's checksums file,
 # once the release is at least seven days old.
 #
@@ -10,6 +10,8 @@ SYFT_VERSION=1.57.0
 SYFT_SHA256=9c077a7d43029b3b13e98a8db720661e700c4d58db6352153a06395ae4a2a704
 TRUFFLEHOG_VERSION=3.99.8
 TRUFFLEHOG_SHA256=7c3b02f160f28929a467e29e20fba98746e0729f6e37c3c25761e4f8789abe08
+DOCKLE_VERSION=0.4.15
+DOCKLE_SHA256=8bfc9183d1d3d67800edb45bea4bb63ddf1d28bec5f89944075a07007d79caad
 
 bin=$1
 case "$(uname -s)-$(uname -m)" in
@@ -34,8 +36,12 @@ fetch_tool syft \
 fetch_tool trufflehog \
   "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" \
   "$TRUFFLEHOG_SHA256"
+fetch_tool dockle \
+  "https://github.com/goodwithtech/dockle/releases/download/v${DOCKLE_VERSION}/dockle_${DOCKLE_VERSION}_Linux-64bit.tar.gz" \
+  "$DOCKLE_SHA256"
 
 {
   echo "syft-version=$SYFT_VERSION"
   echo "trufflehog-version=$TRUFFLEHOG_VERSION"
+  echo "dockle-version=$DOCKLE_VERSION"
 } >> "${GITHUB_OUTPUT:-/dev/null}"
