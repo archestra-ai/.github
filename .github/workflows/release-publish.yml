@@ -9,10 +9,12 @@
 #   accepts provenance only from the project's release workflow, never this
 #   file.
 # - What each image contains is attested here (the attest-contents job,
-#   actions/attest-release-image): SPDX and CycloneDX SBOMs, a secret scan and
-#   a ClamAV malware scan, signed by this workflow, which the publisher accepts
-#   for those types only. A secret verified as live, or malware, stops the
-#   release before the request is sent. actions/attest-verification-summary
+#   actions/attest-release-image): SPDX and CycloneDX SBOMs, a secret scan, a
+#   ClamAV malware scan and a Dockle image benchmark (the CIS Docker
+#   Benchmark's image checks, with the project's `benchmark-waivers`), signed
+#   by this workflow, which the publisher accepts for those types only. A
+#   secret verified as live, malware, or a benchmark failure no waiver covers
+#   stops the release before the request is sent. actions/attest-verification-summary
 #   signs a SLSA verification summary of each image's build provenance.
 #   With `vex-document`, each image's statements in the project's OpenVEX
 #   document (read from the release commit, or from `vex-ref`) are attested
@@ -112,9 +114,17 @@ on:
           job. Empty attests no VEX.
         type: string
         default: ""
+      benchmark-waivers:
+        description: >-
+          Path, in the calling repository, of the project's image benchmark waivers (for example
+          .github/image-benchmark-waivers.json, the file the Image Benchmark required workflow reads), read
+          from the same commit as vex-document. Each image's waivers match its key in `images`. Needs
+          `contents: read` in the calling job. Empty waives nothing.
+        type: string
+        default: ""
       vex-ref:
         description: >-
-          Branch, tag or commit of the calling repository to read vex-document from, for example main,
+          Branch, tag or commit of the calling repository to read vex-document and benchmark-waivers from, for example main,
           so a release built from a maintenance branch attests the statements merged since it was cut.
           Empty reads the release commit.
         type: string
@@ -202,7 +212,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: read # read the VEX document at the release commit
+      contents: read # read the VEX document and benchmark waivers at the release commit
       id-token: write # sign the attestations
       attestations: write # store them
       packages: read # pull the staged image
@@ -216,29 +226,33 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
-      # Only the VEX document, from the commit the release was built from or
-      # from vex-ref.
-      - name: Check out the VEX document
-        if: ${{ inputs.vex-document != '' }}
+      # Only the VEX document and the benchmark waivers, from the commit the
+      # release was built from or from vex-ref.
+      - name: Check out the VEX document and benchmark waivers
+        if: ${{ inputs.vex-document != '' || inputs.benchmark-waivers != '' }}
         uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.vex-ref || github.sha }}
           path: release-publish/source
-          sparse-checkout: ${{ inputs.vex-document }}
+          sparse-checkout: |
+            ${{ inputs.vex-document }}
+            ${{ inputs.benchmark-waivers }}
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
       - name: Attest the image contents
-        uses: archestra-ai/.github/actions/attest-release-image@v1.37.1
+        uses: archestra-ai/.github/actions/attest-release-image@v1.39.0
         with:
           image: ${{ matrix.image.image }}
           subject-name: ${{ matrix.image.name }}
           vex-document: ${{ inputs.vex-document != '' && format('release-publish/source/{0}', inputs.vex-document) || '' }}
+          benchmark-key: ${{ matrix.image.label }}
+          benchmark-waivers: ${{ inputs.benchmark-waivers != '' && format('release-publish/source/{0}', inputs.benchmark-waivers) || '' }}
 
       # Checks the image's merge-queue provenance against the SLSA Build L3
       # policy and signs the result, so a consumer verifies one attestation.
       - name: Attest the verification summary
-        uses: archestra-ai/.github/actions/attest-verification-summary@v1.37.1
+        uses: archestra-ai/.github/actions/attest-verification-summary@v1.39.0
         with:
           image: ${{ matrix.image.image }}
           subject-name: ${{ matrix.image.name }}
