@@ -51,8 +51,8 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
 }
 ```
 
-- **Fields:** `key` is the image's key in the release request, which waivers match. `target`, `build-args`, `prepare` and `runner` are optional:
-  - `prepare` is a command, run from the repository root, that generates a build context the repository doesn't commit.
+- **Fields:** `key` is the image's key in the release request, which waivers match. `target`, `build-args`, `prepare`, `build-args-file` and `runner` are optional:
+  - `prepare` is a command, run from the repository root, that generates a build context the repository doesn't commit. It can write `NAME=value` build arguments to the file `build-args-file` names.
   - `runner` is a GitHub-hosted Linux x64 label, such as `ubuntu-24.04-16core` for a large build.
 - **Waivers:** `{"waivers": [{"images": ["<key or glob>"], "check": "CIS-DI-0001", "reason": "...", "alerts": ["<glob>"]}]}`. `alerts` is optional and narrows a waiver to the findings whose every alert matches one of its globs. The release attestation records each waiver and its reason.
 - **What it doesn't see:** the check reads the built image, but a change to other files in the build context doesn't trigger a build. The release check covers those.

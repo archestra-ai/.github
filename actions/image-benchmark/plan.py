@@ -20,7 +20,8 @@ from the repository's image list, .github/images.json:
 `key` is the image's key in the release request (what benchmark waivers
 match), `dockerfile` and `context` are paths in the repository; `target`,
 `build-args`, `prepare` (a command run from the repository root before the
-build, for a context the build needs generated) and `runner` (a
+build, for a context the build needs generated), `build-args-file` (NAME=value
+lines, read after `prepare`, before `build-args`) and `runner` (a
 GitHub-hosted Linux x64 label) are optional. `unreleased` lists Dockerfiles
 (paths or globs) that build no released image, with the reason.
 
@@ -58,7 +59,7 @@ RUNNER = re.compile(r"^ubuntu-(latest|[0-9]{2}\.[0-9]{2}(-[0-9]+core)?)$")
 KEY = re.compile(r"^[a-z0-9]+([._/-][a-z0-9]+)*(:[A-Za-z0-9_][A-Za-z0-9._-]*)?$")
 TARGET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ARG_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-IMAGE_FIELDS = {"key", "dockerfile", "context", "target", "build-args", "prepare", "runner"}
+IMAGE_FIELDS = {"key", "dockerfile", "context", "target", "build-args", "build-args-file", "prepare", "runner"}
 PREPARE_TIMEOUT = 45 * 60
 
 
@@ -180,7 +181,8 @@ def build(repo, entry, tag):
     command = ["docker", "build", "--platform", "linux/amd64", "--file", str(repo / image["dockerfile"]), "--tag", tag]
     if image["target"]:
         command += ["--target", image["target"]]
-    for name, value in sorted(image["build-args"].items()):
+    args = read_build_args(repo, image["build-args-file"]) if image["build-args-file"] else {}
+    for name, value in sorted({**args, **image["build-args"]}.items()):
         command += ["--build-arg", f"{name}={value}"]
     command.append(str(repo / image["context"]))
     print(f"Building {image['key']}: {' '.join(command)}", flush=True)
@@ -227,6 +229,8 @@ def validate_image(image, where):
             isinstance(name, str) and ARG_NAME.match(name) and isinstance(value, str) and not re.search(r"[\n\r\0]", value)
             for name, value in args.items()):
         raise ValueError(f"{where}: build-args must map argument names to single-line strings")
+    if "build-args-file" in image:
+        relative_path(image["build-args-file"], f"{where}: build-args-file")
     prepare = image.get("prepare", [])
     if not isinstance(prepare, list) or ("prepare" in image and not prepare) or not all(
             isinstance(part, str) and part and "\0" not in part for part in prepare):
@@ -234,6 +238,19 @@ def validate_image(image, where):
     if "runner" in image and (not isinstance(image["runner"], str) or not RUNNER.match(image["runner"])):
         raise ValueError(f"{where}: runner must be a GitHub-hosted Linux x64 label, such as ubuntu-latest or ubuntu-24.04-16core")
     return image
+
+
+def read_build_args(repo, path):
+    """NAME=value lines; blank lines and # comments are skipped."""
+    args = {}
+    for number, line in enumerate((repo / path).read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        name, separator, value = line.partition("=")
+        if not separator or not ARG_NAME.match(name) or "\0" in value:
+            raise ValueError(f"{path}:{number}: expected NAME=value")
+        args[name] = value
+    return args
 
 
 def relative_path(value, where, allow_root=False):
@@ -264,6 +281,7 @@ def check_paths(repo, manifest, dockerfiles):
 def normalized(image):
     return {"key": image["key"], "dockerfile": image["dockerfile"], "context": image["context"],
             "target": image.get("target", ""), "build-args": image.get("build-args", {}),
+            "build-args-file": image.get("build-args-file", ""),
             "prepare": image.get("prepare", []), "runner": image.get("runner", DEFAULT_RUNNER)}
 
 

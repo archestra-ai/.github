@@ -182,7 +182,8 @@ class PlanTests(unittest.TestCase):
             "not valid JSON": "{",
             "must be an object": [],
             "must have key, dockerfile and context": {"images": [{"key": "x/y", "dockerfile": "platform/Dockerfile"}]},
-            "only build-args, prepare, runner, target": {"images": [{**PLATFORM, "push": True}]},
+            "only build-args, build-args-file, prepare, runner, target": {"images": [{**PLATFORM, "push": True}]},
+            "build-args-file must be a path": {"images": [{**PLATFORM, "build-args-file": "/etc/args"}]},
             "key must be": {"images": [{**PLATFORM, "key": "Docker.io/Archestra"}]},
             "dockerfile must be a path in the repository": {"images": [{**PLATFORM, "dockerfile": "../Dockerfile"}]},
             "context must be a path": {"images": [{**PLATFORM, "context": "/abs"}]},
@@ -222,7 +223,7 @@ class PlanTests(unittest.TestCase):
         self.assertIn("Check docker.io/archestra/platform (platform/Dockerfile): its Dockerfile changed", stdout.getvalue())
         lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
         self.assertEqual(json.loads(lines["matrix"]), {"include": [{
-            "build-args": {}, "context": "platform", "dockerfile": "platform/Dockerfile",
+            "build-args": {}, "build-args-file": "", "context": "platform", "dockerfile": "platform/Dockerfile",
             "key": "docker.io/archestra/platform", "prepare": [], "runner": "ubuntu-latest", "target": ""}]})
         self.assertEqual(lines["build"], "true")
         self.assertEqual(lines["waivers"], ".github/image-benchmark-waivers.json")
@@ -264,6 +265,19 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(prepare, ["bash", "scripts/context.sh"])
         self.assertEqual(str(prepare_kwargs["cwd"]), "/repo")
         self.assertEqual(build[-1], "/repo/out")
+
+    def test_it_reads_build_args_the_prepare_command_wrote(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "args.env").write_text("# made by prepare\nVERSION=1.0\n\nNAME=a=b\n")
+            entry = plan.normalized({**PLATFORM, "build-args-file": "args.env", "build-args": {"VERSION": "2.0"}})
+            runs = []
+            with mock.patch.object(plan.subprocess, "run", side_effect=lambda command, **kwargs: runs.append(command)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                plan.build(Path(directory), entry, "t")
+            self.assertEqual(runs[0][runs[0].index("--tag") + 2:-1], ["--build-arg", "NAME=a=b", "--build-arg", "VERSION=2.0"])
+            Path(directory, "args.env").write_text("not an argument\n")
+            with self.assertRaisesRegex(ValueError, "args.env:1: expected NAME=value"), contextlib.redirect_stdout(io.StringIO()):
+                plan.build(Path(directory), entry, "t")
 
     def test_it_checks_the_entry_again(self):
         entry = plan.normalized({**PLATFORM, "runner": "self-hosted"})
