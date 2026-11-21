@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Checks one platform of an image with Dockle (the CIS Docker Benchmark's
 # image checks and Dockle's own) and writes the image benchmark predicate
-# (benchmark.py). Used by this action, in a project's merge queue, and by
-# attest-release-image at release time, so both apply the same checks and
-# waivers to the same bytes.
+# (benchmark.py). Used by this action, by the Image Benchmark workflow before
+# a change merges, and by attest-release-image at release time, so all apply
+# the same checks and waivers.
 #
 # The image is read from the Docker daemon: one already there (a candidate the
 # workflow built and loaded) is used as is, otherwise it is pulled. Dockle gets

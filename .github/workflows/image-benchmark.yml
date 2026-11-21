@@ -1,0 +1,119 @@
+name: Image Benchmark
+
+# Checks the images a change touches against the CIS Docker Benchmark's image
+# checks (Dockle), with the repository's waivers, before the change merges.
+# An organization ruleset requires it on every repository's pull requests and
+# merge queue, so it has no `paths` filter: it always runs, and decides from
+# the repository's .github/images.json what to build (see "Image benchmark"
+# in the README). A change that touches no image passes in seconds.
+
+on:
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: image-benchmark-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  plan:
+    name: Plan image benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # read the repository under check, including private ones
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      waivers: ${{ steps.plan.outputs.waivers }}
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v7.0.1
+        with:
+          path: target
+          persist-credentials: false
+
+      # The planner comes from the same commit as this workflow file, so the
+      # ruleset's ref decides both. If GitHub ever reports a workflow ref
+      # outside this repository, fall back to main.
+      - name: Checkout org workflow repository
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: archestra-ai/.github
+          ref: ${{ startsWith(github.workflow_ref, 'archestra-ai/.github/') && github.workflow_sha || 'main' }}
+          path: .org-github
+          sparse-checkout: actions/image-benchmark
+          persist-credentials: false
+
+      # The read-only job token fetches the base commit of a private
+      # repository; Git reads it from the environment and never writes it to
+      # disk.
+      - name: Plan the images to check
+        id: plan
+        working-directory: target
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          GH_TOKEN: ${{ github.token }}
+          GIT_CONFIG_COUNT: "2"
+          GIT_CONFIG_KEY_0: credential.helper
+          GIT_CONFIG_VALUE_0: ""
+          GIT_CONFIG_KEY_1: credential.https://github.com.helper
+          GIT_CONFIG_VALUE_1: '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
+        run: |
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::No base commit to compare the change with."
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          python3 -I ../.org-github/actions/image-benchmark/plan.py plan . --base-ref "$BASE_SHA" \
+            --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+  benchmark:
+    name: Benchmark ${{ matrix.key }}
+    needs: plan
+    if: ${{ needs.plan.outputs.build == 'true' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read # read the repository under check, including private ones
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Reclaim disk space (background)
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup &
+
+      - name: Checkout target repository
+        uses: actions/checkout@v7.0.1
+        with:
+          path: target
+          persist-credentials: false
+
+      - name: Checkout org workflow repository
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: archestra-ai/.github
+          ref: ${{ startsWith(github.workflow_ref, 'archestra-ai/.github/') && github.workflow_sha || 'main' }}
+          path: .org-github
+          sparse-checkout: actions/image-benchmark
+          persist-credentials: false
+
+      # linux/amd64 into the Docker daemon, never pushed, without secrets.
+      - name: Build the image
+        env:
+          IMAGE_ENTRY: ${{ toJSON(matrix) }}
+        run: python3 -I .org-github/actions/image-benchmark/plan.py build target --tag image-benchmark/candidate:latest
+
+      # The image-benchmark action's script (benchmark.sh), run directly: the
+      # same Dockle, checks and waivers attest-release-image applies at
+      # release time.
+      - name: Check the image against the benchmark
+        env:
+          KEY: ${{ matrix.key }}
+          WAIVERS: ${{ needs.plan.outputs.waivers && format('target/{0}', needs.plan.outputs.waivers) || '' }}
+        run: |
+          work=$(mktemp -d "$RUNNER_TEMP/image-benchmark.XXXXXX")
+          bash .org-github/actions/image-benchmark/benchmark.sh image-benchmark/candidate:latest linux/amd64 \
+            "$KEY" "$WAIVERS" "$work/image-benchmark.json" "$work" fail
