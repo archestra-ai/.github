@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.37.1](https://github.com/archestra-ai/.github/compare/v1.37.0...v1.37.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **attest-release-image:** scan files under nested dev directories ([#114](https://github.com/archestra-ai/.github/issues/114)) ([b869b34](https://github.com/archestra-ai/.github/commit/b869b3460a581a8796b6f84e2618ccde198b142e))
+
 ## [1.37.0](https://github.com/archestra-ai/.github/compare/v1.36.0...v1.37.0) (2026-11-21)
 
 
