@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.37.2](https://github.com/archestra-ai/.github/compare/v1.37.1...v1.37.2) (2026-11-21)
+
+
+### Bug Fixes
+
+* **release-publish:** run the malware scan from v1.37.1 ([#116](https://github.com/archestra-ai/.github/issues/116)) ([e9cbde6](https://github.com/archestra-ai/.github/commit/e9cbde6cc8c56fdf9e005842ff90a5eb523066af))
+
 ## [1.37.1](https://github.com/archestra-ai/.github/compare/v1.37.0...v1.37.1) (2026-11-21)
 
 
