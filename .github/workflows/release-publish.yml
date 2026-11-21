@@ -19,6 +19,9 @@
 #   With `vex-document`, each image's statements in the project's OpenVEX
 #   document (read from the release commit, or from `vex-ref`) are attested
 #   there too, pinned to its digest. The caller's job then also grants `contents: read`.
+#   With `base-images-from`, the statements Docker signed for the images'
+#   Docker Hardened Images bases (dhi.io) are attested with them, for packages
+#   whose exact build an image holds; pass `DHI_TOKEN` to pull from dhi.io.
 #   The caller's job grants `id-token: write`, `attestations: write` and
 #   `packages: read` (to pull the staged images); dry runs skip it.
 # - The request names this run attempt (`<run>-<attempt>`). The publisher
@@ -122,6 +125,15 @@ on:
           `contents: read` in the calling job. Empty waives nothing.
         type: string
         default: ""
+      base-images-from:
+        description: >-
+          Dockerfiles in the calling repository (paths, one per line) the images are built from, read at the
+          release commit. For each `FROM dhi.io/...@sha256:...` base they pin, Docker's signed OpenVEX statements
+          that are facts about a package build are attested for every image that holds that exact package build
+          (actions/attest-release-image `base-images-from`). Needs `contents: read` in the calling job and
+          the DHI_TOKEN secret. Empty carries nothing over.
+        type: string
+        default: ""
       vex-ref:
         description: >-
           Branch, tag or commit of the calling repository to read vex-document and benchmark-waivers from, for example main,
@@ -167,6 +179,11 @@ on:
       APP_PRIVATE_KEY:
         description: Private key of that GitHub App.
         required: true
+      DHI_TOKEN:
+        description: >-
+          Docker access token of the `archestra` Docker account (the DOCKERHUB_DHI_TOKEN organization secret),
+          to pull dhi.io bases for base-images-from.
+        required: false
     outputs:
       run-url:
         description: The publisher run.
@@ -212,7 +229,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: read # read the VEX document and benchmark waivers at the release commit
+      contents: read # read the VEX document, benchmark waivers and Dockerfiles at the release commit
       id-token: write # sign the attestations
       attestations: write # store them
       packages: read # pull the staged image
@@ -240,19 +257,49 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      # The Dockerfiles always from the release commit: they name the bases
+      # this release was built from.
+      - name: Check out the Dockerfiles
+        if: ${{ inputs.base-images-from != '' }}
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: release-publish/build
+          sparse-checkout: ${{ inputs.base-images-from }}
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Log in to Docker Hardened Images
+        id: dockerfiles
+        if: ${{ inputs.base-images-from != '' }}
+        env:
+          DHI_TOKEN: ${{ secrets.DHI_TOKEN }}
+          DOCKERFILES: ${{ inputs.base-images-from }}
+        run: |
+          set -euo pipefail
+          [ -n "$DHI_TOKEN" ] || { echo "::error::base-images-from needs the DHI_TOKEN secret to pull dhi.io bases"; exit 1; }
+          printf '%s' "$DHI_TOKEN" | docker login dhi.io --username archestra --password-stdin >/dev/null
+          # The action reads the Dockerfiles from the checkout above.
+          {
+            echo "paths<<EOF"
+            sed 's|^[[:space:]]*||; /^$/d; s|^|release-publish/build/|' <<<"$DOCKERFILES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Attest the image contents
-        uses: archestra-ai/.github/actions/attest-release-image@v1.39.0
+        uses: archestra-ai/.github/actions/attest-release-image@v1.42.0
         with:
           image: ${{ matrix.image.image }}
           subject-name: ${{ matrix.image.name }}
           vex-document: ${{ inputs.vex-document != '' && format('release-publish/source/{0}', inputs.vex-document) || '' }}
+          base-images-from: ${{ steps.dockerfiles.outputs.paths }}
           benchmark-key: ${{ matrix.image.label }}
           benchmark-waivers: ${{ inputs.benchmark-waivers != '' && format('release-publish/source/{0}', inputs.benchmark-waivers) || '' }}
 
       # Checks the image's merge-queue provenance against the SLSA Build L3
       # policy and signs the result, so a consumer verifies one attestation.
       - name: Attest the verification summary
-        uses: archestra-ai/.github/actions/attest-verification-summary@v1.39.0
+        uses: archestra-ai/.github/actions/attest-verification-summary@v1.42.0
         with:
           image: ${{ matrix.image.image }}
           subject-name: ${{ matrix.image.name }}
