@@ -219,6 +219,7 @@ class DockerfileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             dockerfile = Path(directory) / "Dockerfile"
             dockerfile.write_text(f"ARG BASE={pin}\nFROM golang:1.26@sha256:{'b' * 64} AS build\n"
+                                  f"FROM dhi.io.example.test/node:24@sha256:{'c' * 64} AS lookalike\n"
                                   f"FROM ${{BASE}} AS runtime\nCOPY --from={pin} /lib /lib\nFROM runtime AS final\n")
             self.assertEqual(base_vex.dhi_bases([dockerfile]), [pin])
             dockerfile.write_text("FROM dhi.io/node:24-dev\n")
