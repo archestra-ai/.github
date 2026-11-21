@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.42.0](https://github.com/archestra-ai/.github/compare/v1.41.1...v1.42.0) (2026-11-21)
+
+
+### Features
+
+* **attest-release-image:** carry Docker Hardened Images' signed VEX over to images built from them ([#128](https://github.com/archestra-ai/.github/issues/128)) ([4868e12](https://github.com/archestra-ai/.github/commit/4868e12f40b95b5340655c19e94a9159ee048ac3))
+
+
+### Bug Fixes
+
+* **attest-release-image:** match the dhi.io registry host exactly ([#130](https://github.com/archestra-ai/.github/issues/130)) ([4d47d29](https://github.com/archestra-ai/.github/commit/4d47d2972219c8404dbcf8b51dc71ce07ca2b4b2))
+
 ## [1.41.1](https://github.com/archestra-ai/.github/compare/v1.41.0...v1.41.1) (2026-11-21)
 
 
