@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.36.0](https://github.com/archestra-ai/.github/compare/v1.35.0...v1.36.0) (2026-11-20)
+
+
+### Features
+
+* **attest-release-image:** attest a ClamAV malware scan and a SLSA verification summary ([#111](https://github.com/archestra-ai/.github/issues/111)) ([7edbd0b](https://github.com/archestra-ai/.github/commit/7edbd0bd3acc67a3baae780e556f8b08d20bc65a))
+
+
+### Dependencies
+
+* bump the github-actions-dependencies group across 3 directories with 4 updates ([#110](https://github.com/archestra-ai/.github/issues/110)) ([3d5bfec](https://github.com/archestra-ai/.github/commit/3d5bfec69d246c8ce85d0c3bec85946a59da2a9c))
+
+
+### Miscellaneous Chores
+
+* remove the Archestra runtime review workflow ([#106](https://github.com/archestra-ai/.github/issues/106)) ([d0f5dfe](https://github.com/archestra-ai/.github/commit/d0f5dfedc0b53845423ba88d47d2441c553e9210))
+
 ## [1.35.0](https://github.com/archestra-ai/.github/compare/v1.34.0...v1.35.0) (2026-11-20)
 
 
