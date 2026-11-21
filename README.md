@@ -35,6 +35,30 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
 
 [`supply-chain-policy.yml`](.github/workflows/supply-chain-policy.yml) is enforced the same way: an organization ruleset in `archestra-ai/infra` requires it on every repository's pull requests and merge queue, from the same pinned tag. It checks that Dependabot updates use a seven-day cooldown, that pnpm waits seven days for new releases and skips install scripts, and that Cargo lockfiles are committed and used. It checks that every workflow is onboarded to the GitHub Actions workflow lockfile. It also verifies that every image a Dockerfile builds on is signed by its publisher, or is on the list of known unsigned images. See [supply-chain-policy/README.md](supply-chain-policy/README.md) for the rules, starter configuration for new repositories, and how to fix each finding.
 
+## Image benchmark
+
+[`image-benchmark.yml`](.github/workflows/image-benchmark.yml) checks a change's container images against the CIS Docker Benchmark's image checks with [Dockle](https://github.com/goodwithtech/dockle), before the change merges. An organization ruleset in `archestra-ai/infra` requires it on every repository's pull requests and merge queue. It has no `paths` filter, so it always runs and passes in seconds when no image changed. At release time, [`attest-release-image`](actions/attest-release-image) runs the same check ([`actions/image-benchmark`](actions/image-benchmark)) on the release digest and attests the result.
+
+- **What it builds:** the images listed in the repository's `.github/images.json` whose Dockerfile, `.dockerignore`, list entry or waivers the change touches. It builds each one for `linux/amd64` into the runner's Docker daemon, without pushing or secrets, and fails on a FATAL or WARN check that no waiver in `.github/image-benchmark-waivers.json` covers.
+- **Every Dockerfile is declared:** a Dockerfile the change adds or modifies must be in `images.json`, either under `images` with the key it is released as, or under `unreleased` with a reason. When `images.json` itself changes, every Dockerfile in the repository must be declared. A repository without Dockerfiles needs no list.
+
+```json
+{
+  "images": [
+    {"key": "docker.io/archestra/platform:slim", "dockerfile": "platform/Dockerfile", "context": "platform", "target": "unified-slim"}
+  ],
+  "unreleased": [{"dockerfile": "platform/dev/*/Dockerfile", "reason": "Local development images, never released."}]
+}
+```
+
+- **Fields:** `key` is the image's key in the release request, which waivers match. `target`, `build-args`, `prepare`, `build-args-file` and `runner` are optional:
+  - `prepare` is a command, run from the repository root, that generates a build context the repository doesn't commit. It can write `NAME=value` build arguments to the file `build-args-file` names.
+  - `runner` is a GitHub-hosted Linux x64 label, such as `ubuntu-24.04-16core` for a large build.
+- **Waivers:** `{"waivers": [{"images": ["<key or glob>"], "check": "CIS-DI-0001", "reason": "...", "alerts": ["<glob>"]}]}`. `alerts` is optional and narrows a waiver to the findings whose every alert matches one of its globs. The release attestation records each waiver and its reason.
+- **Docker Hardened Images:** a Dockerfile that builds `FROM dhi.io/...` needs a login to pull. The workflow pulls those bases with the `DOCKERHUB_DHI_TOKEN` organization secret (a pull-only Docker Hub token), logs out, then builds from the local copies, so the build itself still runs without credentials. A repository with such an image needs access to that secret.
+- **What it doesn't see:** the check reads the built image, but a change to other files in the build context doesn't trigger a build. The release check covers those.
+- The planner and the check come from the same commit as the workflow file, so the ruleset's tag decides both. The planner's tests run with the other Python tests. The Shared Action Tests workflow also runs the plan, build and check end to end against a fixture repository.
+
 ## Shared Actions
 
 - [CI authentication and deployment](actions/README.md): Google WIF, GitHub App

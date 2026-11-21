@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.39.0](https://github.com/archestra-ai/.github/compare/v1.38.0...v1.39.0) (2026-11-21)
+
+
+### Features
+
+* **image-benchmark:** check images against the CIS Docker Benchmark before merge and at release ([#120](https://github.com/archestra-ai/.github/issues/120)) ([3ca126d](https://github.com/archestra-ai/.github/commit/3ca126d83a6113d5bf9e9e72e0960f3206709438))
+
 ## [1.38.0](https://github.com/archestra-ai/.github/compare/v1.37.2...v1.38.0) (2026-11-21)
 
 
