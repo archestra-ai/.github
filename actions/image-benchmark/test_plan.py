@@ -224,10 +224,23 @@ class PlanTests(unittest.TestCase):
         lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
         self.assertEqual(json.loads(lines["matrix"]), {"include": [{
             "build-args": {}, "build-args-file": "", "context": "platform", "dockerfile": "platform/Dockerfile",
-            "key": "docker.io/archestra/platform", "prepare": [], "runner": "ubuntu-latest", "target": ""}]})
+            "hardened-bases": [], "key": "docker.io/archestra/platform", "prepare": [], "runner": "ubuntu-latest",
+            "target": ""}]})
         self.assertEqual(lines["build"], "true")
         self.assertEqual(lines["waivers"], ".github/image-benchmark-waivers.json")
         self.assertIn("`docker.io/archestra/platform`", summary.read_text())
+
+    def test_main_lists_the_hardened_bases_to_pull_first(self):
+        hardened = "dhi.io/node:24-alpine3.23-dev@sha256:" + "a" * 64
+        base = self.platform_repo()
+        self.repo.commit({"platform/Dockerfile": (
+            f"FROM node:24 AS build\nFROM --platform=$BUILDPLATFORM {hardened} AS runtime-base\n"
+            f"from {hardened}\nFROM runtime-base\nFROM ${{BASE}}\n")})
+        output = self.repo.root / "output"
+        with contextlib.redirect_stdout(io.StringIO()):
+            plan.main(["plan", str(self.repo.root), "--base-ref", base, "--output", str(output)])
+        lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(json.loads(lines["matrix"])["include"][0]["hardened-bases"], [hardened])
 
     def test_main_fails_on_errors(self):
         base = self.base({})

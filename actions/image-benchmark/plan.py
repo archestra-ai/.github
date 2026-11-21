@@ -35,6 +35,12 @@ needs no images.json. Problems are reported as ::error:: lines and exit 1.
 
 `build` builds one planned image for linux/amd64 into the Docker daemon,
 without pushing it, after its `prepare` command.
+
+Each matrix entry also lists the image's Docker Hardened Image bases
+(`hardened-bases`: the dhi.io images its Dockerfile's FROM lines name), which
+need a login to pull. The workflow pulls them first and logs out again, so
+the build, and the repository's own `prepare` command, run without registry
+credentials and use the local copies.
 """
 
 import argparse
@@ -61,6 +67,8 @@ TARGET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ARG_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 IMAGE_FIELDS = {"key", "dockerfile", "context", "target", "build-args", "build-args-file", "prepare", "runner"}
 PREPARE_TIMEOUT = 45 * 60
+HARDENED_REGISTRY = "dhi.io/"
+FROM_LINE = re.compile(r"^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)", re.IGNORECASE | re.MULTILINE)
 
 
 def main(argv):
@@ -96,7 +104,8 @@ def run_plan(args):
     if result["errors"]:
         return 1
     if args.output:
-        matrix = {"include": [{field: image[field] for field in sorted(IMAGE_FIELDS)} for image in result["images"]]}
+        matrix = {"include": [{**{field: image[field] for field in sorted(IMAGE_FIELDS)},
+                               "hardened-bases": hardened_bases(repo, image)} for image in result["images"]]}
         waivers = WAIVERS if (repo / WAIVERS).is_file() else ""
         with open(args.output, "a", encoding="utf-8") as output:
             output.write(f"matrix={json.dumps(matrix, separators=(',', ':'))}\n")
@@ -283,6 +292,12 @@ def normalized(image):
             "target": image.get("target", ""), "build-args": image.get("build-args", {}),
             "build-args-file": image.get("build-args-file", ""),
             "prepare": image.get("prepare", []), "runner": image.get("runner", DEFAULT_RUNNER)}
+
+
+def hardened_bases(repo, image):
+    """The Docker Hardened Images (dhi.io) the image's Dockerfile builds FROM."""
+    text = (repo / image["dockerfile"]).read_text(encoding="utf-8")
+    return sorted({ref for ref in FROM_LINE.findall(text) if ref.startswith(HARDENED_REGISTRY)})
 
 
 def ignore_files(image):

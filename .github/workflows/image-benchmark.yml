@@ -100,6 +100,30 @@ jobs:
           sparse-checkout: actions/image-benchmark
           persist-credentials: false
 
+      # Docker Hardened Images (dhi.io) need a login to pull. Pull the bases
+      # the plan found, then log out: the build and the repository's own
+      # prepare command run without registry credentials and use these local
+      # copies. DOCKERHUB_DHI_TOKEN is a pull-only Docker Hub organization
+      # access token, an Actions and a Dependabot secret of the organization
+      # under the same name, so Dependabot's pull requests get it too.
+      - name: Pull Docker Hardened Image bases
+        if: ${{ join(matrix.hardened-bases, '') != '' }}
+        env:
+          BASES: ${{ join(matrix.hardened-bases, ' ') }}
+          DHI_TOKEN: ${{ secrets.DOCKERHUB_DHI_TOKEN }}
+          # An organization access token signs in as the Docker organization.
+          DHI_USER: archestra
+        run: |
+          if [ -z "$DHI_TOKEN" ]; then
+            echo "::error::This image builds on Docker Hardened Images (dhi.io), which need a login; give this repository the DOCKERHUB_DHI_TOKEN organization secret."
+            exit 1
+          fi
+          trap 'docker logout dhi.io >/dev/null' EXIT
+          printf '%s' "$DHI_TOKEN" | docker login dhi.io --username "$DHI_USER" --password-stdin
+          for base in $BASES; do
+            docker pull --quiet --platform linux/amd64 "$base"
+          done
+
       # linux/amd64 into the Docker daemon, never pushed, without secrets.
       - name: Build the image
         env:

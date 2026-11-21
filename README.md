@@ -55,6 +55,7 @@ This keeps the scan policy consistent across repositories and avoids per-reposit
   - `prepare` is a command, run from the repository root, that generates a build context the repository doesn't commit. It can write `NAME=value` build arguments to the file `build-args-file` names.
   - `runner` is a GitHub-hosted Linux x64 label, such as `ubuntu-24.04-16core` for a large build.
 - **Waivers:** `{"waivers": [{"images": ["<key or glob>"], "check": "CIS-DI-0001", "reason": "...", "alerts": ["<glob>"]}]}`. `alerts` is optional and narrows a waiver to the findings whose every alert matches one of its globs. The release attestation records each waiver and its reason.
+- **Docker Hardened Images:** a Dockerfile that builds `FROM dhi.io/...` needs a login to pull. The workflow pulls those bases with the `DOCKERHUB_DHI_TOKEN` organization secret (a pull-only Docker Hub token), logs out, then builds from the local copies, so the build itself still runs without credentials. A repository with such an image needs access to that secret.
 - **What it doesn't see:** the check reads the built image, but a change to other files in the build context doesn't trigger a build. The release check covers those.
 - The planner and the check come from the same commit as the workflow file, so the ruleset's tag decides both. The planner's tests run with the other Python tests. The Shared Action Tests workflow also runs the plan, build and check end to end against a fixture repository.
 
