@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.40.0](https://github.com/archestra-ai/.github/compare/v1.39.0...v1.40.0) (2026-11-21)
+
+
+### Features
+
+* **release-publish:** attest each image's benchmark with the caller's waivers ([#121](https://github.com/archestra-ai/.github/issues/121)) ([e58de29](https://github.com/archestra-ai/.github/commit/e58de2987b7a018c426b028fdc3563540b721506))
+
 ## [1.39.0](https://github.com/archestra-ai/.github/compare/v1.38.0...v1.39.0) (2026-11-21)
 
 
