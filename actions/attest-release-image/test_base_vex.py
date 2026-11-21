@@ -53,6 +53,7 @@ class FakeRegistry:
         self.content = {}  # reference -> bytes
         self.referrer_lists = {}  # reference -> [descriptor]
         self.signed = set()
+        self.unlogged = set()  # signed with Docker's key, but not in Rekor
         self.databases = {}  # (reference, platform) -> apk database text
 
     def put(self, repository, value):
@@ -110,9 +111,11 @@ class FakeRegistry:
     def verify(self, reference):
         if reference not in self.signed:
             raise ValueError(f"cosign verify failed: no signature for {reference}")
+        return reference not in self.unlogged
 
-    def apk_db(self, reference, platform):
-        return self.databases[(reference, platform)]
+    def package_db(self, reference, platform):
+        database = self.databases[(reference, platform)]
+        return database if isinstance(database, dict) else {"apk": database, "dpkg": []}
 
 
 class InheritTests(unittest.TestCase):
@@ -195,6 +198,16 @@ class InheritTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not about"):
             self.inherit(image)
 
+    def test_skips_an_attestation_whose_signature_rekor_does_not_record(self):
+        image = self.image({p: apk_db(**DHI_GIT) for p in PLATFORMS})
+        for manifest in self.base_manifests.values():
+            self.registry.unlogged.add(self.registry.attest("dhi.io/node", manifest, [statement()]))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            carried = base_vex.inherit(self.registry, image=image, subject_name="docker.io/archestra/platform", bases=[self.base])
+        self.assertEqual(carried, [])
+        self.assertIn("not in the transparency log", output.getvalue())
+
     def test_refuses_a_statement_whose_content_does_not_match_its_signed_digest(self):
         image = self.image({p: apk_db(**DHI_GIT) for p in PLATFORMS})
         manifest = self.registry.attest("dhi.io/node", self.base_manifests["linux/amd64"], [statement()])
@@ -211,6 +224,78 @@ class InheritTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(base_vex.inherit(self.registry, image=image, subject_name="docker.io/archestra/platform",
                                               bases=[amd64_only]), [])
+
+
+GLIBC = "pkg:deb/debian/glibc@2.41-12%2Bdeb13u4%2Bdhi1"
+DOCKER_GLIBC = "2.41-12+deb13u4+dhi1"
+
+
+def dpkg_record(package, version, maintainer="Docker Hardened Images <dhi@docker.com>", source="glibc"):
+    return (f"Package: {package}\nStatus: install ok installed\nSource: {source}\nVersion: {version}\n"
+            f"Maintainer: {maintainer}\nArchitecture: amd64\n\n")
+
+
+def debian(status, records=()):
+    """A Debian image's package databases: dpkg's status file and the base's status.d records."""
+    return {"apk": "", "dpkg": [status, *records]}
+
+
+class DebianInheritTests(unittest.TestCase):
+    """Docker's Debian builds: matched by their +dhi version, by binary or source package name."""
+
+    def setUp(self):
+        self.registry = FakeRegistry()
+        docker = debian("", [dpkg_record("libc6", DOCKER_GLIBC), dpkg_record("libc-bin", DOCKER_GLIBC)])
+        self.base, self.base_manifests = self.registry.index("dhi.io/python", {p: docker for p in PLATFORMS})
+        self.base = self.base.replace("dhi.io/python@", "dhi.io/python:3.14.10-debian13-dev@")
+
+    def image(self, databases):
+        reference, _ = self.registry.index("ghcr.io/archestra-ai/ci/platform", databases)
+        return reference
+
+    def inherit(self, image):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return base_vex.inherit(self.registry, image=image, subject_name="docker.io/archestra/platform", bases=[self.base])
+
+    def attest_each_platform(self, statements):
+        for manifest in self.base_manifests.values():
+            self.registry.attest("dhi.io/python", manifest, statements)
+
+    def glibc(self, justification="inline_mitigations_already_exist"):
+        return statement("CVE-2026-19499", justification=justification, purls=(GLIBC,))
+
+    def test_carries_a_statement_for_dockers_build_the_image_still_holds(self):
+        self.attest_each_platform([self.glibc()])
+        image = self.image({p: debian(dpkg_record("libc6", DOCKER_GLIBC)) for p in PLATFORMS})
+        [carried] = self.inherit(image)
+        self.assertEqual((carried["status"], carried["justification"]), ("not_affected", "inline_mitigations_already_exist"))
+        self.assertEqual(carried["products"], [{"@id": "pkg:oci/platform", "subcomponents": [{"@id": GLIBC}]}])
+        vex.check_statement(carried, "carried")
+
+    def test_carries_nothing_once_apt_replaced_dockers_build(self):
+        self.attest_each_platform([self.glibc()])
+        # apt upgraded libc6 to Debian's build: dpkg's status says so, the base's status.d record does not.
+        upgraded = debian(dpkg_record("libc6", "2.41-12+deb13u5", maintainer="GNU Libc Maintainers <debian-glibc@lists.debian.org>"),
+                          [dpkg_record("libc6", DOCKER_GLIBC)])
+        self.assertEqual(self.inherit(self.image({p: upgraded for p in PLATFORMS})), [])
+
+    def test_carries_nothing_for_debians_own_build(self):
+        # Without a +dhi version nothing proves which build it is.
+        version = "2.41-12+deb13u4"
+        statement_ = statement("CVE-2026-19499", purls=(f"pkg:deb/debian/glibc@{version.replace('+', '%2B')}",))
+        own = debian(dpkg_record("libc6", version, maintainer="GNU Libc Maintainers <debian-glibc@lists.debian.org>"))
+        for platform, manifest in self.base_manifests.items():
+            self.registry.databases[(manifest, platform)] = own
+        self.attest_each_platform([statement_])
+        self.assertEqual(self.inherit(self.image({p: own for p in PLATFORMS})), [])
+
+    def test_inline_mitigations_carry_over_only_for_dockers_builds(self):
+        apk = {"git": ("2.52.1-r0", "Q1alpine-git=")}
+        for platform, manifest in self.base_manifests.items():
+            self.registry.databases[(manifest, platform)] = apk_db(**apk)
+        self.attest_each_platform([statement(justification="inline_mitigations_already_exist", purls=(GIT,))])
+        self.assertEqual(self.inherit(self.image({p: apk_db(**apk) for p in PLATFORMS})), [])
+
 
 
 class DockerfileTests(unittest.TestCase):

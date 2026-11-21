@@ -17,14 +17,23 @@ the DHI image itself, though, so they report those CVEs against ours.
 
 A statement carries over only when all of these hold:
   - Docker signed the attestation, with the key base-images.toml trusts for
-    dhi.io, and it is about the base's manifest for that platform.
+    dhi.io, the transparency log (Rekor) records that signature, and it is
+    about the base's manifest for that platform. An attestation the key signed
+    but Rekor does not record is skipped with a warning; a bad signature fails.
   - It is `fixed`, or `not_affected` because the package lacks the code
     (vulnerable_code_not_present, component_not_present): facts about the
-    package build that hold wherever it runs. A justification that depends on
-    how the DHI image runs the code is left out.
+    package build that hold wherever it runs. For a package Docker built
+    itself, `not_affected` because of inline_mitigations_already_exist (its
+    patch in that build) too. A justification that depends on how the DHI
+    image runs the code is left out.
   - The image holds the same build of the package as the base, on every one of
-    its platforms: an Alpine package of the same name, version and checksum
-    (the `C:` line of the apk database). Only Alpine packages are carried over.
+    its platforms:
+      - Alpine (apk): the same name, version and checksum (the `C:` line of
+        the apk database).
+      - Debian (dpkg, by binary or source package name): the same version, of
+        a package Docker built (maintainer Docker Hardened Images, a `+dhi`
+        version, which no other build carries). Debian's own builds record no
+        checksum to compare, so they never match.
 
 Needs on PATH: oras, cosign and docker, logged in to dhi.io and to the image's
 registry.
@@ -47,7 +56,10 @@ IN_TOTO = "application/vnd.in-toto+json"
 PREDICATE_TYPE_ANNOTATION = "in-toto.io/predicate-type"
 # Statements that hold for the package build wherever it is installed.
 CARRIED = {("not_affected", "vulnerable_code_not_present"), ("not_affected", "component_not_present"), ("fixed", None)}
-APK_PURL = re.compile(r"^pkg:apk/(?P<namespace>[^/@?#]+)/(?P<name>[^/@?#]+)@(?P<version>[^?#]+)")
+# Only for a package Docker built: the mitigation is its patch in that build.
+CARRIED_FOR_DOCKER_BUILDS = {("not_affected", "inline_mitigations_already_exist")}
+PURL = re.compile(r"^pkg:(?P<type>apk|deb)/(?P<namespace>[^/@?#]+)/(?P<name>[^/@?#]+)@(?P<version>[^?#]+)")
+DOCKER_MAINTAINER = "Docker Hardened Images"
 VULNERABILITY = re.compile(r"(CVE-\d{4}-\d{4,}|GHSA(-[23456789cfghjmpqrvwx]{4}){3})")
 PINNED = re.compile(r"^(?P<repository>[^@]+?)(?::[\w][\w.-]{0,127})?@(?P<digest>sha256:[0-9a-f]{64})$")
 INDEX_TYPES = ("application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json")
@@ -97,7 +109,7 @@ def inherit(registry, *, image, subject_name, bases, single_platform="linux/amd6
     product = f"pkg:oci/{subject_name.rsplit('/', 1)[-1]}"
     carried = None
     for platform, ours in platforms:
-        packages = parse_apk_db(registry.apk_db(ours, platform))
+        packages = parse_packages(registry.package_db(ours, platform))
         found = {}
         for base in bases:
             for key, statement in base_statements(registry, base, platform, packages).items():
@@ -137,25 +149,29 @@ def base_statements(registry, base, platform, packages):
     if digest is None:
         print(f"  {base} has no {platform} image: nothing carried over from it")
         return {}
-    theirs = parse_apk_db(registry.apk_db(f"{repository}@{digest}", platform))
+    theirs = parse_packages(registry.package_db(f"{repository}@{digest}", platform))
     result = {}
     for document, source in vex_documents(registry, repository, digest):
         for statement in document.get("statements") or []:
             name = (statement.get("vulnerability") or {}).get("name", "")
             status, justification = statement.get("status"), statement.get("justification")
-            if not VULNERABILITY.fullmatch(name) or (status, justification if status == "not_affected" else None) not in CARRIED:
+            claim = (status, justification if status == "not_affected" else None)
+            if not VULNERABILITY.fullmatch(name) or claim not in CARRIED | CARRIED_FOR_DOCKER_BUILDS:
                 continue
             for purl in statement_packages(statement):
-                match = APK_PURL.match(purl)
+                match = PURL.match(purl)
                 if not match:
                     continue
-                package, version = match["name"], urllib.parse.unquote(match["version"])
+                package, version = (match["type"], match["name"]), urllib.parse.unquote(match["version"])
                 build = theirs.get(package)
                 # The base's own build of the package, and the image holds that same build:
-                # the checksum proves it, so an entry without one never matches.
-                if not build or build[0] != version or not build[1] or packages.get(package) != build:
+                # its identity proves it (a checksum, or a version only Docker's build has),
+                # so a package without one never matches.
+                if not build or build["version"] != version or not build["identity"] or packages.get(package) != build:
                     continue
-                key = (name, f"pkg:apk/{match['namespace']}/{package}@{match['version']}")
+                if claim in CARRIED_FOR_DOCKER_BUILDS and not build["docker"]:
+                    continue
+                key = (name, f"pkg:{match['type']}/{match['namespace']}/{match['name']}@{match['version']}")
                 result.setdefault(key, {
                     "status": status,
                     "justification": justification if status == "not_affected" else None,
@@ -187,7 +203,10 @@ def vex_documents(registry, repository, digest):
             continue
         reference = f"{repository}@{descriptor['digest']}"
         # Docker signs the attestation's manifest; the manifest pins its layer by digest.
-        registry.verify(reference)
+        if not registry.verify(reference):
+            print(f"::warning::{reference}: Docker's signature is valid but not in the transparency log; "
+                  "its statements are not carried over")
+            continue
         manifest_bytes = registry.manifest_bytes(reference)
         check_digest(manifest_bytes, descriptor["digest"], reference)
         layers = [layer for layer in json.loads(manifest_bytes).get("layers") or [] if layer.get("mediaType") == IN_TOTO]
@@ -243,16 +262,31 @@ def grouped(carried, product):
     return statements
 
 
-def parse_apk_db(text):
-    """{package: (version, checksum)} from an apk database (/lib/apk/db/installed)."""
+def parse_packages(databases):
+    """{(purl type, package): {version, identity, docker}} from an image's package databases:
+    {"apk": /lib/apk/db/installed, "dpkg": [/var/lib/dpkg/status, /var/lib/dpkg/status.d/*]}.
+    `identity` proves which build it is, or is None when nothing does."""
     packages = {}
-    for block in text.split("\n\n"):
+    for block in (databases.get("apk") or "").split("\n\n"):
         fields = {}
         for line in block.splitlines():
-            if len(line) > 2 and line[1] == ":" and line[0] in "PVC":
+            if len(line) > 2 and line[1] == ":" and line[0] in "PVCm":
                 fields.setdefault(line[0], line[2:])
         if "P" in fields and "V" in fields:
-            packages[fields["P"]] = (fields["V"], fields.get("C"))
+            packages[("apk", fields["P"])] = {"version": fields["V"], "identity": fields.get("C"),
+                                              "docker": fields.get("m", "").startswith(DOCKER_MAINTAINER)}
+    for text in databases.get("dpkg") or []:
+        for block in text.split("\n\n"):
+            fields = dict(re.findall(r"^([A-Za-z-]+): ?(.*)$", block, re.M))
+            if "Package" not in fields or "Version" not in fields or fields.get("Status", "install ok installed").split()[-1] != "installed":
+                continue
+            version = fields["Version"]
+            docker = fields.get("Maintainer", "").startswith(DOCKER_MAINTAINER) and "+dhi" in version
+            build = {"version": version, "identity": version if docker else None, "docker": docker}
+            # Advisories name the source package (glibc), images install its binaries (libc6).
+            source = fields.get("Source", fields["Package"]).split(" ", 1)[0]
+            for name in dict.fromkeys((fields["Package"], source)):
+                packages.setdefault(("deb", name), build)
     return packages
 
 
@@ -303,18 +337,33 @@ class Registry:
         return run(["oras", "blob", "fetch", "--output", "-", reference]).stdout
 
     def verify(self, reference):
-        run(["cosign", "verify", "--key", self.key, "--experimental-oci11", reference])
+        """True when Docker's key signed it and Rekor logged that; False when only the key signed it."""
+        command = ["cosign", "verify", "--key", self.key, "--experimental-oci11", reference]
+        result = subprocess.run(command, capture_output=True, check=False)
+        if result.returncode == 0:
+            return True
+        if b"not found in transparency log" in result.stderr:
+            run([*command, "--insecure-ignore-tlog=true"])  # still fails on a bad signature
+            return False
+        run(command)
 
-    def apk_db(self, reference, platform):
+    def package_db(self, reference, platform):
+        """The image's apk database and dpkg status files (see parse_packages); missing ones are empty."""
         run(["docker", "pull", "--quiet", "--platform", platform, reference])
         container = run(["docker", "create", "--platform", platform, reference, "/base-vex-not-run"]).stdout.decode().strip()
         try:
             with tempfile.TemporaryDirectory() as directory:
-                target = os.path.join(directory, "installed")
-                result = subprocess.run(["docker", "cp", f"{container}:/lib/apk/db/installed", target],
-                                        capture_output=True, check=False)
-                # No apk database: no Alpine package to carry a statement over for.
-                return Path(target).read_text(encoding="utf-8") if result.returncode == 0 else ""
+                found = {}
+                for name, path in (("apk", "/lib/apk/db/installed"), ("status", "/var/lib/dpkg/status"),
+                                   ("status.d", "/var/lib/dpkg/status.d")):
+                    result = subprocess.run(["docker", "cp", f"{container}:{path}", os.path.join(directory, name)],
+                                            capture_output=True, check=False)
+                    found[name] = result.returncode == 0
+                read = lambda path: path.read_text(encoding="utf-8", errors="replace")
+                root = Path(directory)
+                dpkg = ([read(root / "status")] if found["status"] else []) + \
+                    ([read(path) for path in sorted((root / "status.d").iterdir()) if path.is_file()] if found["status.d"] else [])
+                return {"apk": read(root / "apk") if found["apk"] else "", "dpkg": dpkg}
         finally:
             subprocess.run(["docker", "rm", "-f", container], capture_output=True, check=False)
 
