@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.37.0](https://github.com/archestra-ai/.github/compare/v1.36.0...v1.37.0) (2026-11-21)
+
+
+### Features
+
+* **release-publish:** attest a ClamAV malware scan and a SLSA verification summary for each image ([#112](https://github.com/archestra-ai/.github/issues/112)) ([6757306](https://github.com/archestra-ai/.github/commit/6757306a10104c6c06b6aed52a9fa723630c598f))
+
 ## [1.36.0](https://github.com/archestra-ai/.github/compare/v1.35.0...v1.36.0) (2026-11-20)
 
 
