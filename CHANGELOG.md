@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.38.0](https://github.com/archestra-ai/.github/compare/v1.37.2...v1.38.0) (2026-11-21)
+
+
+### Features
+
+* **release-publish:** attest and stage image variants under their repository ([#118](https://github.com/archestra-ai/.github/issues/118)) ([28b29ee](https://github.com/archestra-ai/.github/commit/28b29ee52b2c39c9419b91f18af785c8814fb963))
+
 ## [1.37.2](https://github.com/archestra-ai/.github/compare/v1.37.1...v1.37.2) (2026-11-21)
 
 
