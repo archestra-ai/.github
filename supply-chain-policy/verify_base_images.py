@@ -82,6 +82,8 @@ class Rule:
         method = self.options["method"]
         who = self.options.get("owner") or self.options.get("repo") or self.options.get("identity") \
             or self.options.get("identity_regexp")
+        if not who and self.options.get("key"):
+            who = f"the key {Path(self.options['key']).name}"
         return f"{method} signature by {who}"
 
 
@@ -166,9 +168,13 @@ def load_trust(path: Path) -> list[Rule]:
                 raise ValueError(f"{path}: {entry['repository']}: method must be github, cosign or notation")
             if signed and options["method"] == "github" and not (options.get("owner") or options.get("repo")):
                 raise ValueError(f"{path}: {entry['repository']}: a github entry needs owner or repo")
-            if signed and options["method"] == "cosign" and not (
-                    options.get("issuer") and (options.get("identity") or options.get("identity_regexp"))):
-                raise ValueError(f"{path}: {entry['repository']}: a cosign entry needs issuer and identity")
+            if signed and options["method"] == "cosign":
+                if options.get("key"):
+                    options["key"] = str((path.parent / options["key"]).resolve())
+                    if not Path(options["key"]).is_file():
+                        raise ValueError(f"{path}: {entry['repository']}: key {options['key']} is missing")
+                elif not (options.get("issuer") and (options.get("identity") or options.get("identity_regexp"))):
+                    raise ValueError(f"{path}: {entry['repository']}: a cosign entry needs a key, or issuer and identity")
             if signed and options["method"] == "notation":
                 if not (options.get("ca") and options.get("identity")):
                     raise ValueError(f"{path}: {entry['repository']}: a notation entry needs ca and identity")
@@ -262,6 +268,10 @@ def verify_command(reference: str, options: dict) -> list[str]:
         return command
     if options["method"] == "notation":
         return ["notation", "verify", reference]
+    if options.get("key"):
+        # A key-signed image: the signature is an OCI referrer of the image
+        # (cosign's --experimental-oci11), and still checked against Rekor.
+        return ["cosign", "verify", reference, "--key", options["key"], "--experimental-oci11"]
     command = ["cosign", "verify", reference, "--certificate-oidc-issuer", options["issuer"]]
     if options.get("identity"):
         command += ["--certificate-identity", options["identity"]]

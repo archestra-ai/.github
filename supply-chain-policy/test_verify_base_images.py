@@ -33,6 +33,11 @@ issuer = "https://accounts.google.com"
 identity = "keyless@distroless.iam.gserviceaccount.com"
 
 [[signed]]
+repository = "dhi.io/*"
+method = "cosign"
+key = "publisher.pub"
+
+[[signed]]
 repository = "mcr.microsoft.com/*"
 method = "notation"
 ca = "root.pem"
@@ -76,6 +81,7 @@ class VerifyBaseImagesTest(unittest.TestCase):
         trust.write_text(TRUST)
         (self.root / "root.pem").write_text("root certificate")
         (self.root / "tsa.pem").write_text("timestamping root")
+        (self.root / "publisher.pub").write_text("public key")
         self.trust = verify.load_trust(trust)
         self.tools = FakeTools()
         self.sleeps = []
@@ -106,6 +112,15 @@ class VerifyBaseImagesTest(unittest.TestCase):
         self.assertEqual(self.statuses(results), [(1, "verified", "ok")])
         self.assertEqual(self.tools.commands[0][:3], ["cosign", "verify", f"gcr.io/distroless/static:nonroot{DIGEST}"])
         self.assertIn("keyless@distroless.iam.gserviceaccount.com", self.tools.commands[0])
+
+    def test_key_signed_image_verifies_against_the_key_beside_the_trust_list(self):
+        self.tools.good.add(f"dhi.io/node:24-dev{DIGEST}")
+        results = self.check({"Dockerfile": f"FROM dhi.io/node:24-dev{DIGEST}\n"})
+        self.assertEqual(self.statuses(results), [(1, "verified", "ok")])
+        self.assertEqual(self.tools.commands[0], [
+            "cosign", "verify", f"dhi.io/node:24-dev{DIGEST}",
+            "--key", str((self.root / "publisher.pub").resolve()), "--experimental-oci11"])
+        self.assertIn("by the key publisher.pub", results[0].detail)
 
     def test_signed_image_that_does_not_verify_fails(self):
         results = self.check({"Dockerfile": f"FROM ghcr.io/example/app:1{DIGEST}\n"})
@@ -158,6 +173,7 @@ class VerifyBaseImagesTest(unittest.TestCase):
     def test_trust_entries_must_say_how_to_verify_or_why_not(self):
         for bad in ('[[signed]]\nrepository = "a/*"\nmethod = "github"\n',
                     '[[signed]]\nrepository = "a/*"\nmethod = "cosign"\nissuer = "x"\n',
+                    '[[signed]]\nrepository = "a/*"\nmethod = "cosign"\nkey = "absent.pub"\n',
                     '[[signed]]\nrepository = "a/*"\nmethod = "notary"\n',
                     '[[signed]]\nrepository = "a/*"\nmethod = "notation"\nidentity = "CN=x"\n',
                     '[[signed]]\nrepository = "a/*"\nmethod = "notation"\nca = "absent.pem"\nidentity = "CN=x"\n',
