@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.41.0](https://github.com/archestra-ai/.github/compare/v1.40.0...v1.41.0) (2026-11-21)
+
+
+### Features
+
+* **supply-chain-policy:** verify Docker Hardened Images with Docker's signing key ([#124](https://github.com/archestra-ai/.github/issues/124)) ([7de0fc8](https://github.com/archestra-ai/.github/commit/7de0fc845e0b5bcfdab9889145bae33d0b2120cc))
+
 ## [1.40.0](https://github.com/archestra-ai/.github/compare/v1.39.0...v1.40.0) (2026-11-21)
 
 
