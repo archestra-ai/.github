@@ -1,0 +1,49 @@
+name: Check an image against the benchmark
+description: >-
+  Check one image with Dockle (the CIS Docker Benchmark's image checks and Dockle's own), apply the project's
+  waivers, and fail on a FATAL or WARN check no waiver covers. Run it where the project builds its release
+  candidates (the merge queue), so a Dockerfile change that breaks a check never reaches a release;
+  attest-release-image runs the same check at release time and signs the result.
+inputs:
+  image:
+    description: The image. One already in the Docker daemon (a candidate the job built and loaded) is used as is; otherwise it is pulled, so log in first.
+    required: true
+  key:
+    description: >-
+      The image's key in the release request, which waivers match (for example docker.io/archestra/platform:slim
+      or ghcr.io/archestra-ai/agent-codex).
+    required: true
+  platform:
+    description: The platform to pull, for a multi-platform image.
+    default: linux/amd64
+  waivers:
+    description: >-
+      Path to the project's benchmark waivers:
+      `{"waivers": [{"images": ["<key or glob>"], "check": "CIS-DI-0001", "reason": "...", "alerts": ["<glob>"]}]}`
+      (`alerts` optional). Empty waives nothing.
+    default: ""
+  on-failure:
+    description: "`fail` (default): a FATAL or WARN check no waiver covers fails the step. `record`: report it and continue."
+    default: fail
+outputs:
+  predicate-path:
+    description: The image benchmark predicate (https://archestra.ai/attestations/image-benchmark/v1).
+    value: ${{ steps.check.outputs.predicate }}
+runs:
+  using: composite
+  steps:
+    - name: Check the image
+      id: check
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        PLATFORM: ${{ inputs.platform }}
+        KEY: ${{ inputs.key }}
+        WAIVERS: ${{ inputs.waivers }}
+        ON_FAILURE: ${{ inputs.on-failure }}
+        CHECK: ${{ github.action_path }}/benchmark.sh
+      run: |
+        set -euo pipefail
+        work=$(mktemp -d "$RUNNER_TEMP/image-benchmark.XXXXXX")
+        echo "predicate=$work/image-benchmark.json" >> "$GITHUB_OUTPUT"
+        bash "$CHECK" "$IMAGE" "$PLATFORM" "$KEY" "$WAIVERS" "$work/image-benchmark.json" "$work" "$ON_FAILURE"
