@@ -15,4 +15,8 @@ curl -fsSL --retry 3 -o "$directory/cosign" \
 echo "${SHA256}  $directory/cosign" | sha256sum -c -
 chmod +x "$directory/cosign"
 echo "$directory" >> "${GITHUB_PATH:?}"
-"$directory/cosign" version | grep -m1 GitVersion
+# Not `cosign version | grep -m1`: grep exits at its first match, and
+# cosign writing the rest then dies of SIGPIPE, which pipefail turns into
+# an intermittent exit 141.
+version_output="$("$directory/cosign" version)"
+grep -m1 GitVersion <<<"$version_output"
