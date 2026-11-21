@@ -81,6 +81,25 @@ jobs:
           jq -e '.statements | length == 1 and (.[0].products[0]["@id"]
             == "pkg:oci/static@sha256%3Aaafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931?repository_url=gcr.io/distroless/static")' "$VEX"
 
+  # The Image Benchmark workflow's plan, build and check against a fixture
+  # repository on a real runner: an image that passes, one that fails, and an
+  # undeclared Dockerfile.
+  image-benchmark:
+    name: Image benchmark (fixture repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Plan, build and check the fixture
+        env:
+          TOOLS: ${{ github.workspace }}/actions/image-benchmark
+        run: bash actions/image-benchmark/testdata/fixture-repository.sh
+
   # Verifies a published release image's build provenance against the
   # Build Level 3 policy and writes the summary, without signing it.
   attest-verification-summary:
