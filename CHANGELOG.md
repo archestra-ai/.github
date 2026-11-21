@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.41.1](https://github.com/archestra-ai/.github/compare/v1.41.0...v1.41.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **supply-chain-policy:** stop the cosign and notation installers failing on SIGPIPE ([#126](https://github.com/archestra-ai/.github/issues/126)) ([22f70ce](https://github.com/archestra-ai/.github/commit/22f70ce77350c723d1ba56a6149976ada171add6))
+
 ## [1.41.0](https://github.com/archestra-ai/.github/compare/v1.40.0...v1.41.0) (2026-11-21)
 
 
