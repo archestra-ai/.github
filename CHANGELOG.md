@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.44.0](https://github.com/archestra-ai/.github/compare/v1.43.0...v1.44.0) (2026-11-21)
+
+
+### Features
+
+* **attest-release-image:** carry over DHI VEX for Debian bases, skip attestations Rekor does not record ([#133](https://github.com/archestra-ai/.github/issues/133)) ([1564639](https://github.com/archestra-ai/.github/commit/15646392dd8bb166f13e8d8f6063c26727a429a5))
+
 ## [1.43.0](https://github.com/archestra-ai/.github/compare/v1.42.0...v1.43.0) (2026-11-21)
 
 
