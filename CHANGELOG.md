@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.43.0](https://github.com/archestra-ai/.github/compare/v1.42.0...v1.43.0) (2026-11-21)
+
+
+### Features
+
+* **release-publish:** attest Docker Hardened Images' VEX for the caller's DHI bases ([#131](https://github.com/archestra-ai/.github/issues/131)) ([14ea621](https://github.com/archestra-ai/.github/commit/14ea62138ceecfdd6268ae82fed3a63acc34f4f7))
+
 ## [1.42.0](https://github.com/archestra-ai/.github/compare/v1.41.1...v1.42.0) (2026-11-21)
 
 
