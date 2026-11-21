@@ -38,12 +38,14 @@ test "$(jq '.include | length' <<<"$matrix")" = 2
 
 # Builds and checks the entry for $1; prints benchmark.sh's exit status.
 check() {
-  local key=$1 waivers=$2 tag work status=0
+  local key=$1 waivers=$2 tag work status
   tag=image-benchmark/fixture-${key##*/}
   work=$(mktemp -d "$root/work.XXXXXX")
   IMAGE_ENTRY=$(jq -c --arg key "$key" '.include[] | select(.key == $key)' <<<"$matrix") \
     python3 -I "$TOOLS/plan.py" build . --tag "$tag" >&2
-  bash "$TOOLS/benchmark.sh" "$tag" linux/amd64 "$key" "$waivers" "$work/predicate.json" "$work" fail >&2 || status=$?
+  # Indented, so an expected failure is not an annotation on the run.
+  bash "$TOOLS/benchmark.sh" "$tag" linux/amd64 "$key" "$waivers" "$work/predicate.json" "$work" fail 2>&1 | sed 's/^/  /' >&2
+  status=${PIPESTATUS[0]}
   echo "$status"
 }
 
@@ -59,7 +61,7 @@ echo "Waived root user passed."
 
 mkdir -p extra && printf 'FROM %s\n' "$BASE_IMAGE" > extra/Dockerfile
 git add --all && git commit --quiet --message undeclared
-if python3 -I "$TOOLS/plan.py" plan . --base-ref "$base"; then
+if python3 -I "$TOOLS/plan.py" plan . --base-ref "$base" | sed 's/^/  /'; [ "${PIPESTATUS[0]}" = 0 ]; then
   echo "::error::An undeclared Dockerfile passed the plan."
   exit 1
 fi

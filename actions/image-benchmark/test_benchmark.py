@@ -86,15 +86,15 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(status, 2)
 
     def test_benchmark_waiver_with_alerts_covers_only_those_alerts(self):
-        secrets = {"code": "CIS-DI-0010", "title": "Do not store credential in environment variables/files",
+        settings_file = {"code": "CIS-DI-0010", "title": "Do not store credential in environment variables/files",
                    "level": "FATAL", "alerts": ["Suspicious filename found : opt/venv/lib/mcp/server/auth/settings.py"]}
         waiver = {"images": ["*/mcp-server-base"], "check": "CIS-DI-0010", "alerts": ["Suspicious filename found : opt/venv/lib/*"],
                   "reason": "Package source named like a settings file; the secret scan reads its contents."}
-        status, _, predicate = self.benchmark([secrets], [waiver], "ghcr.io/archestra-ai/mcp-server-base")
+        status, _, predicate = self.benchmark([settings_file], [waiver], "ghcr.io/archestra-ai/mcp-server-base")
         self.assertEqual(status, 0)
         self.assertEqual(predicate["policy"]["waivers"][0]["alerts"], waiver["alerts"])
-        secrets = {**secrets, "alerts": [*secrets["alerts"], "Suspicious ENV key found : API_TOKEN"]}
-        status, output, _ = self.benchmark([secrets], [waiver], "ghcr.io/archestra-ai/mcp-server-base")
+        settings_file = {**settings_file, "alerts": [*settings_file["alerts"], "Suspicious ENV key found : API_TOKEN"]}
+        status, output, _ = self.benchmark([settings_file], [waiver], "ghcr.io/archestra-ai/mcp-server-base")
         self.assertEqual(status, 2)
         self.assertIn("API_TOKEN", output)
 

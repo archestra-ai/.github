@@ -104,7 +104,7 @@ jobs:
       - name: Build the image
         env:
           IMAGE_ENTRY: ${{ toJSON(matrix) }}
-        run: python3 -I .org-github/actions/image-benchmark/plan.py build target --tag image-benchmark/candidate:latest
+        run: python3 -I .org-github/actions/image-benchmark/plan.py build target --tag image-benchmark/candidate:check
 
       # The image-benchmark action's script (benchmark.sh), run directly: the
       # same Dockle, checks and waivers attest-release-image applies at
@@ -115,5 +115,5 @@ jobs:
           WAIVERS: ${{ needs.plan.outputs.waivers && format('target/{0}', needs.plan.outputs.waivers) || '' }}
         run: |
           work=$(mktemp -d "$RUNNER_TEMP/image-benchmark.XXXXXX")
-          bash .org-github/actions/image-benchmark/benchmark.sh image-benchmark/candidate:latest linux/amd64 \
+          bash .org-github/actions/image-benchmark/benchmark.sh image-benchmark/candidate:check linux/amd64 \
             "$KEY" "$WAIVERS" "$work/image-benchmark.json" "$work" fail
