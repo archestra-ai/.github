@@ -16,4 +16,8 @@ curl -fsSL --retry 3 -o "$archive" \
 echo "${SHA256}  $archive" | sha256sum -c -
 tar -xzf "$archive" -C "$directory" notation
 echo "$directory" >> "${GITHUB_PATH:?}"
-"$directory/notation" version | grep -m1 Version
+# Not `notation version | grep -m1`: grep exits at its first match, and
+# notation writing the rest then dies of SIGPIPE, which pipefail turns into
+# an intermittent exit 141.
+version_output="$("$directory/notation" version)"
+grep -m1 Version <<<"$version_output"
