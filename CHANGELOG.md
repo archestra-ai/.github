@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.44.1](https://github.com/archestra-ai/.github/compare/v1.44.0...v1.44.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **attest-provenance:** let an image repository hold several digests ([#135](https://github.com/archestra-ai/.github/issues/135)) ([7b45d42](https://github.com/archestra-ai/.github/commit/7b45d428f3e6445b9b738de9670adecca6f905a1))
+* **release-publish:** attest with the v1.44.0 actions, which skip unlogged DHI VEX ([#136](https://github.com/archestra-ai/.github/issues/136)) ([35384ad](https://github.com/archestra-ai/.github/commit/35384adb3a7b23bbe91af78fcb89ee2e6001f6c0))
+
 ## [1.44.0](https://github.com/archestra-ai/.github/compare/v1.43.0...v1.44.0) (2026-11-21)
 
 
