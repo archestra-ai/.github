@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.45.4](https://github.com/archestra-ai/.github/compare/v1.45.3...v1.45.4) (2026-11-22)
+
+
+### Bug Fixes
+
+* **release-finalize:** verify with release-publish-verify v1.45.3, which accepts image variants ([#146](https://github.com/archestra-ai/.github/issues/146)) ([17920f1](https://github.com/archestra-ai/.github/commit/17920f1223fbb4db9ceb5e2534700ced39fc3105))
+
 ## [1.45.3](https://github.com/archestra-ai/.github/compare/v1.45.2...v1.45.3) (2026-11-22)
 
 
