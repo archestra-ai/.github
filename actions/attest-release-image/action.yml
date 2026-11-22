@@ -146,6 +146,12 @@ runs:
         SBOM: ${{ steps.paths.outputs.sbom }}
         CYCLONEDX: ${{ steps.paths.outputs.cyclonedx }}
         SYFT_CHECK_FOR_APP_UPDATE: "false"
+        # No package-to-file CONTAINS relationships. They list every file each
+        # package installed, about two thirds of a Debian image's SPDX SBOM:
+        # 17.7 MB for an agent image of 1,048 packages, over the 16 MiB
+        # attestation limit, and 4.4 MB without them, with the same packages.
+        # Vulnerability scanners match packages, not files.
+        SYFT_RELATIONSHIPS_PACKAGE_FILE_OWNERSHIP: "false"
       run: |
         set -euo pipefail
         # One scan, both formats: they list the same packages.
