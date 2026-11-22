@@ -73,6 +73,8 @@ jobs:
         run: |
           set -euo pipefail
           jq -e '.spdxVersion == "SPDX-2.3" and (.packages | length) > 0' "$SBOM"
+          # Packages only: no package-to-file relationships (they outgrow the 16 MiB limit).
+          jq -e '[.relationships[]? | select(.relationshipType == "CONTAINS" and (.spdxElementId | startswith("SPDXRef-Package")) and (.relatedSpdxElement | startswith("SPDXRef-File")))] | length == 0' "$SBOM"
           jq -e '.bomFormat == "CycloneDX" and (.components | length) > 0' "$CYCLONEDX"
           jq -e '.result.verified == 0 and .scanner.version != ""' "$SECRETS"
           # A fresh signature database and every file of the image scanned, clean.
