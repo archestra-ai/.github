@@ -56,7 +56,7 @@ class Tools:
             return done(args, "")
         if args[:4] == ["docker", "buildx", "imagetools", "inspect"]:
             name = args[4].rsplit(":", 1)[0]
-            return done(args, json.dumps({"digest": self.digests.get(name, DIGEST)}))
+            return done(args, json.dumps({"digest": self.digests.get(args[4], self.digests.get(name, DIGEST))}))
         if args[:2] == ["helm", "pull"]:
             destination = Path(args[args.index("--destination") + 1])
             (destination / f"{args[2].rsplit('/', 1)[1]}-{args[4]}.tgz").write_bytes(self.chart)
@@ -101,6 +101,18 @@ class VerifyTests(unittest.TestCase):
                                             "archestra-ai/.github/.github/workflows/attest-provenance.yml",
                                             "--deny-self-hosted-runners"], "github-token"))
         self.assertIn("version=1.2.3\n", (self.directory / "output").read_text())
+
+    def test_a_variant_is_checked_at_its_suffixed_tag_in_its_images_repository(self):
+        slim = "sha256:" + "c" * 64
+        request = {**self.request, "images": {**self.request["images"], f"{HUB}:slim": slim}}
+        tools = Tools(digests={f"{HUB}:1.2.3-slim": slim})
+        self.verify(tools, request=request)
+        commands = [args for args, _ in tools.calls]
+        self.assertIn(["docker", "buildx", "imagetools", "inspect", f"{HUB}:1.2.3-slim", "--format",
+                       "{{json .Manifest}}"], commands)
+        self.assertIn(f"oci://{HUB}@{slim}", [args[3] for args in commands if args[1:3] == ["attestation", "verify"]])
+        with self.assertRaisesRegex(ValueError, f"{HUB}:1.2.3-slim is sha256:a"):
+            self.verify(Tools(), request=request)
 
     def test_the_publisher_run_must_be_the_trusted_successful_one(self):
         for overrides, message in (
@@ -150,6 +162,10 @@ class VerifyTests(unittest.TestCase):
             ({"VERIFY_CHART_REPOSITORIES": "archestra-platform https://example.com"}, None),
             ({"VERIFY_CHART_REPOSITORIES": ""}, None),
             ({}, {**self.request, "images": {IMAGE: "latest"}}),
+            # A variant names another image of the request, in its own repository.
+            ({}, {**self.request, "images": {f"{HUB}:slim": DIGEST}}),
+            ({}, {**self.request, "images": {HUB: DIGEST, f"{HUB}:Slim": DIGEST}}),
+            ({}, {**self.request, "images": {HUB: DIGEST, f"{HUB}:slim:x": DIGEST}}),
             ({}, {**self.request, "version": "v1.2.3"}),
             ({}, {**self.request, "smoke": True}),
         ):
