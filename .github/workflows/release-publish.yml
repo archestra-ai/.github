@@ -287,7 +287,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Attest the image contents
-        uses: archestra-ai/.github/actions/attest-release-image@v1.42.0
+        uses: archestra-ai/.github/actions/attest-release-image@v1.44.0
         with:
           image: ${{ matrix.image.image }}
           subject-name: ${{ matrix.image.name }}
@@ -299,7 +299,7 @@ jobs:
       # Checks the image's merge-queue provenance against the SLSA Build L3
       # policy and signs the result, so a consumer verifies one attestation.
       - name: Attest the verification summary
-        uses: archestra-ai/.github/actions/attest-verification-summary@v1.42.0
+        uses: archestra-ai/.github/actions/attest-verification-summary@v1.44.0
         with:
           image: ${{ matrix.image.image }}
           subject-name: ${{ matrix.image.name }}
