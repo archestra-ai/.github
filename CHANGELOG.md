@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.45.1](https://github.com/archestra-ai/.github/compare/v1.45.0...v1.45.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **attest-release-image:** leave package-to-file relationships out of the SBOM, which outgrew the attestation limit ([#140](https://github.com/archestra-ai/.github/issues/140)) ([1d2e08c](https://github.com/archestra-ai/.github/commit/1d2e08c1e99f2fc0dde8f989f7ad98b0e2e77eae))
+
 ## [1.45.0](https://github.com/archestra-ai/.github/compare/v1.44.1...v1.45.0) (2026-11-22)
 
 
