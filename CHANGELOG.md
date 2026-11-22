@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.45.2](https://github.com/archestra-ai/.github/compare/v1.45.1...v1.45.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* **release-publish:** attest with the v1.45.1 actions, whose SBOM fits the attestation limit ([#142](https://github.com/archestra-ai/.github/issues/142)) ([523eeff](https://github.com/archestra-ai/.github/commit/523eeff5833c2828df27c7f50ce2b5103950d707))
+
 ## [1.45.1](https://github.com/archestra-ai/.github/compare/v1.45.0...v1.45.1) (2026-11-22)
 
 
