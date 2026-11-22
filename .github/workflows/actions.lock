@@ -12,6 +12,7 @@ workflows:
         - 'grafana/shared-workflows@70c40e5b6522c854a55334124545261cae3d4c73'
     '.github/workflows/release-finalize.yml':
         - 'archestra-ai/.github@v1.31.0'
+        - 'archestra-ai/.github@v1.45.3'
     '.github/workflows/release-please.yml':
         - 'actions/create-github-app-token@v3.3.0'
         - 'googleapis/release-please-action@v5.0.0'
@@ -107,6 +108,11 @@ dependencies:
         repo_id: 1192166927
         uses:
             - 'actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6'
+    'archestra-ai/.github@v1.45.3':
+        ref: 'v1.45.3'
+        commit: 'sha1-f3d98e5fc8af1758bf8029e94cf23789bb8c0bbe'
+        owner_id: 216022683
+        repo_id: 1192166927
     'github/codeql-action@9b3254085494b55a0f7c4c2b3d2d52cc712ce370':
         ref: 'v4.39.1'
         commit: 'sha1-9b3254085494b55a0f7c4c2b3d2d52cc712ce370'

@@ -227,7 +227,7 @@ jobs:
       - name: Verify the publication
         id: verify
         if: ${{ steps.request.outputs.publish == 'true' }}
-        uses: archestra-ai/.github/actions/release-publish-verify@v1.31.0
+        uses: archestra-ai/.github/actions/release-publish-verify@v1.45.3
         with:
           token: ${{ steps.publisher-token.outputs.token }}
           attestation-token: ${{ github.token }}
