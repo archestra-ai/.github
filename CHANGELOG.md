@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.45.3](https://github.com/archestra-ai/.github/compare/v1.45.2...v1.45.3) (2026-11-22)
+
+
+### Bug Fixes
+
+* **release-publish-verify:** verify an image variant at its suffixed tag ([#144](https://github.com/archestra-ai/.github/issues/144)) ([edb3c1b](https://github.com/archestra-ai/.github/commit/edb3c1b03c776066015d722f82e6ba22d03ac8cb))
+
 ## [1.45.2](https://github.com/archestra-ai/.github/compare/v1.45.1...v1.45.2) (2026-11-22)
 
 
