@@ -84,6 +84,36 @@ jobs:
   # The Image Benchmark workflow's plan, build and check against a fixture
   # repository on a real runner: an image that passes, one that fails, and an
   # undeclared Dockerfile.
+  # Builds the pinned skopeo and copies an image index with zstd layers (the
+  # form every Docker Hardened Images build takes) with its digest preserved,
+  # which the runner's packaged skopeo refuses.
+  setup-skopeo:
+    name: Set up skopeo
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up skopeo
+        uses: $/actions/setup-skopeo
+      - name: Copy a zstd image index with its digest preserved
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          mkdir fixture
+          printf 'FROM scratch\nCOPY file /file\n' > fixture/Dockerfile
+          echo fixture > fixture/file
+          docker buildx create --use --driver docker-container >/dev/null
+          docker buildx build --platform linux/amd64 --provenance mode=min \
+            --output type=oci,dest=image.oci.tar,compression=zstd,force-compression=true,oci-artifact=false fixture
+          skopeo copy --all --preserve-digests oci-archive:image.oci.tar oci:copied
+          root=$(tar -xOf image.oci.tar index.json | jq -r '.manifests[0].digest')
+          [ "$(jq -r '.manifests[0].digest' copied/index.json)" = "$root" ]
+
   image-benchmark:
     name: Image benchmark (fixture repository)
     runs-on: ubuntu-latest
