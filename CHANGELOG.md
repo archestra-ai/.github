@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.45.0](https://github.com/archestra-ai/.github/compare/v1.44.1...v1.45.0) (2026-11-22)
+
+
+### Features
+
+* **setup-skopeo:** share the pinned skopeo build that preserves image index digests ([#138](https://github.com/archestra-ai/.github/issues/138)) ([fba8b92](https://github.com/archestra-ai/.github/commit/fba8b9266a52fb95614673621cb8216928936edf))
+
 ## [1.44.1](https://github.com/archestra-ai/.github/compare/v1.44.0...v1.44.1) (2026-11-22)
 
 
