@@ -13,6 +13,8 @@ the GitHub API and the public registries.
    from the project's release App (actor and triggering actor), and its
    latest attempt concluded `success`.
 2. Every public `<name>:<tag>` resolves to the digest the release attested,
+   a variant `<name>:<variant>` (other bytes in the same repository, as
+   release-publisher publishes it) at `<name>:<tag>-<variant>`,
    and that digest carries a build provenance attestation for the source
    repository (`gh attestation verify`), signed by the shared
    attest-provenance.yml or, before a project moved to it, by its own signer
@@ -39,6 +41,7 @@ DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 REPOSITORY = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
 IMAGE = re.compile(r"[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+")
+VARIANT = re.compile(r"[a-z0-9]+")
 OCI = re.compile(r"oci://[a-z0-9.-]+(?::[0-9]+)?(?:/[a-z0-9._-]+)+")
 BOT = re.compile(r"[A-Za-z0-9-]+\[bot\]")
 SIGNER = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+/\.github/workflows/[A-Za-z0-9._-]+\.ya?ml")
@@ -71,15 +74,17 @@ def main(environment):
     run = publisher_run(publisher, request, requester)
     print(f"Publisher run {run['html_url']} (attempt {run['run_attempt']}) succeeded")
     tag = image_tag.format(version=request["version"])
-    for name, digest in sorted(request["images"].items()):
-        published = command("docker", "buildx", "imagetools", "inspect", f"{name}:{tag}",
+    for destination, digest in sorted(request["images"].items()):
+        name, variant = split_variant(destination)
+        reference = f"{name}:{tag}-{variant}" if variant else f"{name}:{tag}"
+        published = command("docker", "buildx", "imagetools", "inspect", reference,
                             "--format", "{{json .Manifest}}")
         actual = json.loads(published).get("digest")
         if actual != digest:
-            raise ValueError(f"{name}:{tag} is {actual}, not the attested {digest}")
+            raise ValueError(f"{reference} is {actual}, not the attested {digest}")
         signer = verify_provenance(name, digest, signer_repository, signer_workflow,
                                    environment.get("VERIFY_ATTESTATION_TOKEN"))
-        print(f"{name}:{tag} = {digest}, attested by {signer}")
+        print(f"{reference} = {digest}, attested by {signer}")
     for chart, sha256 in sorted(((request.get("charts") or {}).get("sha256") or {}).items()):
         with tempfile.TemporaryDirectory() as directory:
             command("helm", "pull", f"{charts[chart]}/{chart}", "--version", request["version"],
@@ -93,6 +98,25 @@ def main(environment):
     if output:
         with open(output, "a") as handle:
             handle.write(f"run-url={run['html_url']}\nversion={request['version']}\n")
+
+
+def split_variant(destination):
+    """(<name>, <variant>) of `<name>:<variant>`, or (<name>, ""). Only the
+    last path segment holds a variant: a registry's port is not one."""
+    head, _, last = destination.rpartition("/")
+    if ":" not in last:
+        return destination, ""
+    last, variant = last.split(":", 1)
+    return f"{head}/{last}", variant
+
+
+def image_name(destination, images):
+    """Whether a request names this image: a public name, or a variant of
+    another image the request names (release-publisher's rule)."""
+    name, variant = split_variant(destination)
+    if not IMAGE.fullmatch(name):
+        return False
+    return not variant or bool(VARIANT.fullmatch(variant) and name in images)
 
 
 def verify_provenance(name, digest, signer_repository, signer_workflow, token):
@@ -117,9 +141,9 @@ def load_request(path):
         raise ValueError("The request file is not a release-publisher request")
     images = request.get("images")
     if (not isinstance(images, dict) or not images
-            or not all(IMAGE.fullmatch(name) and isinstance(digest, str) and DIGEST.fullmatch(digest)
+            or not all(image_name(name, images) and isinstance(digest, str) and DIGEST.fullmatch(digest)
                        for name, digest in images.items())):
-        raise ValueError('The request must hold images {"<public name>": "sha256:<digest>"}')
+        raise ValueError('The request must hold images {"<public name>[:<variant>]": "sha256:<digest>"}')
     charts = (request.get("charts") or {}).get("sha256") or {}
     if not all(PROJECT.fullmatch(name) and SHA256.fullmatch(str(sha)) for name, sha in charts.items()):
         raise ValueError("The request's charts must be {\"<chart>\": \"<sha256>\"}")
