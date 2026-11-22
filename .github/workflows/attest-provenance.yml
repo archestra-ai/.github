@@ -71,8 +71,14 @@ jobs:
             count=$((count + 1))
           done <<< "$SUBJECTS"
           [ "$count" -gt 0 ] || { echo "::error::No subjects to attest"; exit 1; }
-          # One name, one digest: a second line for a name is a caller mistake.
-          duplicates=$(cut -d' ' -f3- "$SUBJECTS_FILE" | sort | uniq -d)
+          # A file has one content, so a second line naming it is a caller
+          # mistake. An image repository (registry host first, like
+          # docker.io/archestra/platform) can hold several images, as its
+          # tags do, so it may be named once per digest. The same name and
+          # digest twice is a mistake either way.
+          repeated=$(sort "$SUBJECTS_FILE" | uniq -d | cut -d' ' -f3-)
+          files=$(cut -d' ' -f3- "$SUBJECTS_FILE" | grep -v -E '^[^/]*[.:][^/]*/' | sort | uniq -d || true)
+          duplicates=$(printf '%s\n%s\n' "$repeated" "$files" | sed '/^$/d' | sort -u)
           [ -z "$duplicates" ] || { echo "::error::Subjects named twice: ${duplicates//$'\n'/, }"; exit 1; }
           echo "Attesting $count subject(s):"
           cat "$SUBJECTS_FILE"

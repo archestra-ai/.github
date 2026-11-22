@@ -46,6 +46,16 @@ class SubjectTests(unittest.TestCase):
             f"{DIGEST_B}  ghcr.io/archestra-ai/appa-runtime",
         ])
 
+    def test_an_image_repository_may_hold_several_digests(self):
+        # The docker run image and its -slim variant: two tags of one repository.
+        result, lines = self.check(
+            f"docker.io/archestra/platform@sha256:{DIGEST_A}\n"
+            f"docker.io/archestra/platform@sha256:{DIGEST_B}\n"
+            f"{DIGEST_A}  ghcr.io/archestra-ai/appa-runtime\n"
+            f"{DIGEST_B}  ghcr.io/archestra-ai/appa-runtime\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(lines), 4)
+
     def test_anything_else_attests_nothing(self):
         for subjects in (
             "",
@@ -58,6 +68,9 @@ class SubjectTests(unittest.TestCase):
             f"{DIGEST_A}  ghcr.io/archestra-ai/appa-runtime:v1",
             f"{DIGEST_A}  two words.tgz",
             f"{DIGEST_A}  chart.tgz\n{DIGEST_B}  chart.tgz",
+            f"{DIGEST_A}  dist/chart.tgz\n{DIGEST_B}  dist/chart.tgz",
+            f"docker.io/archestra/platform@sha256:{DIGEST_A}\ndocker.io/archestra/platform@sha256:{DIGEST_A}",
+            f"{DIGEST_A}  ghcr.io/archestra-ai/appa-runtime\nghcr.io/archestra-ai/appa-runtime@sha256:{DIGEST_A}",
         ):
             with self.subTest(subjects=subjects):
                 result, _ = self.check(subjects)
