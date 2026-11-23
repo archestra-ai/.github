@@ -34,16 +34,16 @@ reaches seven days old. The action has no age-policy bypass input.
 The trusted checker permits only these exact crates.io security artifacts before
 they reach seven days old. The lockfile checksum must match the bundled policy,
 and registry publication metadata must remain available. Each exception expires
-automatically at the timestamp below; ordinary age checks then apply.
+automatically at the timestamp below, and ordinary age checks then apply.
+Remove expired entries from the checker and this table during policy maintenance.
 
 | Crate | Version | RustSec advisory | Exception expires (UTC) |
 | --- | --- | --- | --- |
-| `rustls-webpki` | `0.103.16` | [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382.html) | 2026-10-27 08:58:28.008618 |
-| `webpki-root-certs` | `1.0.10` | [RUSTSEC-2026-0383](https://rustsec.org/advisories/RUSTSEC-2026-0383.html) | 2026-10-26 20:11:38.525787 |
-| `webpki-roots` | `1.0.10` | [RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381.html) | 2026-10-26 20:11:32.333071 |
+| `url` | `2.5.9` | [RUSTSEC-2026-0592](https://rustsec.org/advisories/RUSTSEC-2026-0592.html) | 2026-11-27 23:03:07.148548 |
+| `form_urlencoded` | `1.2.3` | Required dependency of `url 2.5.9` | 2026-11-27 23:02:49.484853 |
 
-These releases implement emSign certificate distrust. Exceptions do not apply to
-other versions, registries, or checksums, and do not disable vulnerability checks.
+Exceptions apply only to the listed versions, registry, and checksums.
+Vulnerability checks still apply.
 Adding an exception requires a reviewed change to this repository and a new
 commit pin in the consumer; there is no consumer-controlled exception input.
 
