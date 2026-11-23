@@ -183,16 +183,16 @@ IGNORED_DIRECTORIES = {
     "__fixtures__",
 }
 
-# Trusted, exact-artifact exceptions for the url security update.
-# No consumer-supplied bypass. Each expires at the release's seven-day boundary;
-# publication metadata must still be available and the registry must be crates.io.
-# RUSTSEC-2026-0592 requires url 2.5.9, which requires form_urlencoded 1.2.3.
+# Temporary exceptions for exact crates.io artifacts needed for security updates.
+# Each entry pins a crate, version, and checksum until the release is seven days old.
 SECURITY_RELEASE_AGE_EXCEPTIONS = {
+    # First patched release for RUSTSEC-2026-0592.
     (
         "url",
         "2.5.9",
         "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a",
     ): datetime.fromisoformat("2026-11-27T23:03:07.148548+00:00"),
+    # Required dependency of url 2.5.9.
     (
         "form_urlencoded",
         "1.2.3",
