@@ -183,26 +183,21 @@ IGNORED_DIRECTORIES = {
     "__fixtures__",
 }
 
-# Trusted, exact-artifact exceptions for the emSign distrust security updates.
+# Trusted, exact-artifact exceptions for the url security update.
 # No consumer-supplied bypass. Each expires at the release's seven-day boundary;
 # publication metadata must still be available and the registry must be crates.io.
-# RUSTSEC-2026-0382, RUSTSEC-2026-0383, RUSTSEC-2026-0381 respectively.
+# RUSTSEC-2026-0592 requires url 2.5.9, which requires form_urlencoded 1.2.3.
 SECURITY_RELEASE_AGE_EXCEPTIONS = {
     (
-        "rustls-webpki",
-        "0.103.16",
-        "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281",
-    ): datetime.fromisoformat("2026-10-27T08:58:28.008618+00:00"),
+        "url",
+        "2.5.9",
+        "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a",
+    ): datetime.fromisoformat("2026-11-27T23:03:07.148548+00:00"),
     (
-        "webpki-root-certs",
-        "1.0.10",
-        "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb",
-    ): datetime.fromisoformat("2026-10-26T20:11:38.525787+00:00"),
-    (
-        "webpki-roots",
-        "1.0.10",
-        "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9",
-    ): datetime.fromisoformat("2026-10-26T20:11:32.333071+00:00"),
+        "form_urlencoded",
+        "1.2.3",
+        "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e",
+    ): datetime.fromisoformat("2026-11-27T23:02:49.484853+00:00"),
 }
 
 

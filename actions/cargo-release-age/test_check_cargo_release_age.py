@@ -76,7 +76,7 @@ class ReleaseAgeTests(unittest.TestCase):
         for candidate, release, source, digest in [
             (name, version, policy.CRATES_IO, "0" * 64),
             (name, version, policy.CRATES_IO, None),
-            (name, "0.103.17", policy.CRATES_IO, checksum),
+            (name, "0.0.0", policy.CRATES_IO, checksum),
             ("other", version, policy.CRATES_IO, checksum),
             (name, version, "sparse+https://example.com/index", checksum),
         ]:
@@ -126,13 +126,7 @@ class ReleaseAgeTests(unittest.TestCase):
         current = lockfile((name, version, policy.CRATES_IO))
         current += f'checksum = "{checksum}"\n'
         current += lockfile(("unrelated", "1.0.0", policy.CRATES_IO)).split("\n", 1)[1]
-        with patch.object(
-            policy, "urlopen",
-            side_effect=[
-                registry_response(now.isoformat(), name=name, version=version),
-                registry_response(now.isoformat(), name="unrelated"),
-            ],
-        ):
+        with patch.object(policy, "publication_time", return_value=now):
             failures = policy.check_versions(lockfile(), current, now)
             self.assertEqual(len(failures), 1)
             self.assertIn("unrelated@1.0.0", failures[0])
