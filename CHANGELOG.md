@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.45.5](https://github.com/archestra-ai/.github/compare/v1.45.4...v1.45.5) (2026-11-23)
+
+
+### Bug Fixes
+
+* **cargo-release-age:** allow patched url dependencies ([1e76a3e](https://github.com/archestra-ai/.github/commit/1e76a3e5b45d4c873329d8845e8aef4fca9fffa7))
+* **cargo-release-age:** allow patched url dependencies ([15afdda](https://github.com/archestra-ai/.github/commit/15afdda94b9f4aaf161ac4e6ec1d4c60b5d10956))
+
+
+### Documentation
+
+* **cargo-release-age:** explain each exception in place ([54e85db](https://github.com/archestra-ai/.github/commit/54e85dbd23d2c0c80e1ca0cc5e7cb1eb34da6dc8))
+
 ## [1.45.4](https://github.com/archestra-ai/.github/compare/v1.45.3...v1.45.4) (2026-11-22)
 
 
