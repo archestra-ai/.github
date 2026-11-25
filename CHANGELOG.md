@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.45.6](https://github.com/archestra-ai/.github/compare/v1.45.5...v1.45.6) (2026-11-25)
+
+
+### Dependencies
+
+* bump zizmorcore/zizmor-action to v0.9.2 (zizmor 1.33.1) ([#150](https://github.com/archestra-ai/.github/issues/150)) ([da8b572](https://github.com/archestra-ai/.github/commit/da8b5722d3eced450100b198442dd28024180295))
+
 ## [1.45.5](https://github.com/archestra-ai/.github/compare/v1.45.4...v1.45.5) (2026-11-23)
 
 
