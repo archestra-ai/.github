@@ -204,11 +204,13 @@ runs:
         CHECK: ${{ github.action_path }}/../image-benchmark/benchmark.sh
       run: |
         set -euo pipefail
-        # The malware scan below reuses the pull.
+        # The malware scan (started next) reuses the pull.
         bash "$CHECK" "$IMAGE" "$PLATFORM" "$KEY" "$WAIVERS" "$PREDICATE" "$WORK" "$ON_FAILURE"
 
-    - name: Scan for malware
-      id: malware
+    # The malware scan is the longest step (minutes for a large image) and
+    # needs nothing the steps up to the VEX statements make, so it runs in the
+    # background meanwhile; "Finish the malware scan" waits for it.
+    - name: Start the malware scan
       if: ${{ inputs.malware-scan == 'true' }}
       shell: bash
       env:
@@ -220,14 +222,12 @@ runs:
         SCAN: ${{ github.action_path }}/malware-scan.sh
       run: |
         set -euo pipefail
-        # Exit 3: no signature database, so there is nothing to attest.
-        status=0
-        bash "$SCAN" "$IMAGE" "$PLATFORM" "$PREDICATE" "$WORK" "$ON_MALWARE" || status=$?
-        case "$status" in
-          0) echo "attest=true" >> "$GITHUB_OUTPUT" ;;
-          3) echo "attest=false" >> "$GITHUB_OUTPUT" ;;
-          *) exit "$status" ;;
-        esac
+        # The exit status lands in a file once the log is complete; the
+        # runner stops anything still running when the job ends.
+        nohup bash -c 'status=0
+          bash "$SCAN" "$IMAGE" "$PLATFORM" "$PREDICATE" "$WORK" "$ON_MALWARE" > "$WORK/malware-scan.log" 2>&1 || status=$?
+          echo "$status" > "$WORK/malware-scan.status.partial" && mv "$WORK/malware-scan.status.partial" "$WORK/malware-scan.status"' \
+          < /dev/null > /dev/null 2>&1 &
 
     - name: Wrap the vulnerability report
       if: ${{ inputs.vulnerability-report != '' }}
@@ -274,6 +274,24 @@ runs:
         python3 -I "$BASE_VEX" inherit --image "$IMAGE" --subject-name "$SUBJECT_NAME" --platform "$PLATFORM" \
           "${arguments[@]}" --output "$WORK/inherited-vex.json"
         echo "inherited=$WORK/inherited-vex.json" >> "$GITHUB_OUTPUT"
+
+    - name: Finish the malware scan
+      id: malware
+      if: ${{ inputs.malware-scan == 'true' }}
+      shell: bash
+      env:
+        WORK: ${{ steps.paths.outputs.work }}
+      run: |
+        set -euo pipefail
+        while [ ! -f "$WORK/malware-scan.status" ]; do sleep 5; done
+        cat "$WORK/malware-scan.log"
+        # Exit 3: no signature database, so there is nothing to attest.
+        status=$(cat "$WORK/malware-scan.status")
+        case "$status" in
+          0) echo "attest=true" >> "$GITHUB_OUTPUT" ;;
+          3) echo "attest=false" >> "$GITHUB_OUTPUT" ;;
+          *) exit "$status" ;;
+        esac
 
     - name: Select the VEX statements
       id: vex
