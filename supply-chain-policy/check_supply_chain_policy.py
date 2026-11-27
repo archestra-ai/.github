@@ -78,6 +78,7 @@ def check_repository(root: Path) -> list[Finding]:
     findings += check_scripts(repo)
     findings += check_base_images(repo)
     findings += check_ci_installs(repo)
+    findings += check_composite_action_pins(repo)
     return sorted(findings, key=lambda f: (f.level != FAIL, f.path, f.message))
 
 
@@ -1115,6 +1116,44 @@ DOCKER_INSTALL_RULES = (
         "Add `--frozen-lockfile`.",
     ),
 )
+
+
+def check_composite_action_pins(repo: Repository) -> list[Finding]:
+    """A composite action pins every action it uses to a full commit SHA.
+
+    The workflow lockfile covers a workflow's own `uses:`, and this repository's
+    local (`$/`) actions as its own workflows call them, so `gh actions-lock`
+    rewrites a SHA pin there to the tag it points to. A repository calling the
+    action from elsewhere gets no such lock: a tag in its `action.yml` is
+    resolved when the job runs, and can be moved.
+    """
+    findings = []
+    for path in sorted(p for p in repo.files if name(p) in ("action.yml", "action.yaml")):
+        try:
+            document = repo.yaml(path)
+        except ParseError:
+            continue
+        runs = document.get("runs") if isinstance(document, dict) else None
+        steps = runs.get("steps") if isinstance(runs, dict) else None
+        for step in steps if isinstance(steps, list) else []:
+            uses = step.get("uses") if isinstance(step, dict) else None
+            if not isinstance(uses, str) or uses.startswith(("./", "$/", "docker://")):
+                continue
+            if not FULL_SHA_PIN.search(uses):
+                findings.append(
+                    Finding(
+                        FAIL,
+                        path,
+                        f"`uses: {uses}` is not pinned to a commit SHA; a caller's lockfile does not lock "
+                        "a composite action's own `uses:`.",
+                        "Pin the full commit SHA with the tag in a comment (`owner/action@<sha> # v1.2.3`). "
+                        "If `gh actions-lock` rewrote it to a tag, keep only its workflow and lockfile changes.",
+                    )
+                )
+    return findings
+
+
+FULL_SHA_PIN = re.compile(r"@[0-9a-f]{40}$")
 
 
 def check_release_age_exclusions(repo: Repository) -> list[Finding]:

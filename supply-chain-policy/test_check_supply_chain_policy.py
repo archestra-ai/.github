@@ -653,6 +653,33 @@ class InstallTests(PolicyTest):
         self.assertEqual([f.path for f in warnings], ["app/package.json"])
 
 
+class CompositeActionPinTests(PolicyTest):
+    ACTION = """
+    name: example
+    runs:
+      using: composite
+      steps:
+        - uses: {uses}
+    """
+
+    def test_a_composite_action_pins_what_it_uses_to_a_commit_sha(self):
+        for uses in ("actions/attest@v4.2.2", "grafana/shared-workflows/actions/lint-pr-title@lint-pr-title/v1",
+                     "actions/setup-go@b7ad1da"):
+            with self.subTest(uses=uses):
+                findings = self.failures({"actions/x/action.yml": self.ACTION.format(uses=uses)})
+                self.assertFinding(findings, "actions/x/action.yml", f"`uses: {uses}` is not pinned")
+
+    def test_sha_pins_local_actions_and_workflows_pass(self):
+        files = {
+            "actions/x/action.yml": self.ACTION.format(uses="actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"),
+            "actions/y/action.yaml": self.ACTION.format(uses="$/actions/x"),
+            "actions/z/action.yml": self.ACTION.format(uses="docker://alpine@sha256:" + "a" * 64),
+            # A workflow step's tag is locked by actions.lock.
+            ".github/workflows/ci.yml": WORKFLOW.replace("- run: echo ok", "- uses: actions/checkout@v7.0.1"),
+        }
+        self.assertFalse([f for f in self.check(files) if "not pinned to a commit SHA" in f.message])
+
+
 class DurationTests(unittest.TestCase):
     def test_units(self):
         day = 86400
