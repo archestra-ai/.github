@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.45.7](https://github.com/archestra-ai/.github/compare/v1.45.6...v1.45.7) (2026-11-27)
+
+
+### Bug Fixes
+
+* **attest-release-image:** parallelize the malware scan and pull DHI bases only when needed ([#152](https://github.com/archestra-ai/.github/issues/152)) ([c7669e0](https://github.com/archestra-ai/.github/commit/c7669e0c1a5b082f8d58e3645484181f3ad6daee))
+
 ## [1.45.6](https://github.com/archestra-ai/.github/compare/v1.45.5...v1.45.6) (2026-11-25)
 
 
