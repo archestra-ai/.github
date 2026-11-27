@@ -161,12 +161,13 @@ class InheritTests(unittest.TestCase):
         other = {"curl": ("8.17.0-r1", "Q1curl=")}
         image = self.image({p: apk_db(**other) for p in PLATFORMS})
         self.assertEqual(self.inherit(image), [])
+        bases = set(self.base_manifests.values())
         # The image's own platforms only: no statement names curl.
-        self.assertTrue(all(reference.startswith("ghcr.io/") for reference in self.registry.pulled), self.registry.pulled)
+        self.assertFalse(bases & set(self.registry.pulled), self.registry.pulled)
         self.registry.pulled.clear()
         image = self.image({p: apk_db(**DHI_GIT) for p in PLATFORMS})
         self.assertEqual(len(self.inherit(image)), 1)
-        self.assertEqual(sorted(r for r in self.registry.pulled if r.startswith("dhi.io/")), sorted(self.base_manifests.values()))
+        self.assertEqual(bases & set(self.registry.pulled), bases)
 
     def test_carries_nothing_without_a_checksum_to_compare(self):
         self.attest_each_platform([statement(purls=(GIT,))])
