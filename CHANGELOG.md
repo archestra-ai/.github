@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.45.8](https://github.com/archestra-ai/.github/compare/v1.45.7...v1.45.8) (2026-11-27)
+
+
+### Bug Fixes
+
+* **release-publish:** attest with the v1.45.7 actions, which scan in parallel and pull DHI bases only when needed ([#154](https://github.com/archestra-ai/.github/issues/154)) ([c6aa510](https://github.com/archestra-ai/.github/commit/c6aa51040d89ede1286e99ed766fff8c26305248))
+
 ## [1.45.7](https://github.com/archestra-ai/.github/compare/v1.45.6...v1.45.7) (2026-11-27)
 
 
