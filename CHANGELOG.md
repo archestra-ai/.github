@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.46.0](https://github.com/archestra-ai/.github/compare/v1.45.8...v1.46.0) (2026-11-27)
+
+
+### Features
+
+* **supply-chain-policy:** fail a published composite action uses: that is not a full commit SHA ([#156](https://github.com/archestra-ai/.github/issues/156)) ([a6a0bea](https://github.com/archestra-ai/.github/commit/a6a0beaa86fce0b6c028cde96cde4ebfa5912ab4))
+
+
+### Bug Fixes
+
+* **attest-release-image:** scan every directory level in the recursive malware scan ([#158](https://github.com/archestra-ai/.github/issues/158)) ([84fc26b](https://github.com/archestra-ai/.github/commit/84fc26b34d2ff50ad40dc2e2acd19f20e9cb3243))
+
 ## [1.45.8](https://github.com/archestra-ai/.github/compare/v1.45.7...v1.45.8) (2026-11-27)
 
 
