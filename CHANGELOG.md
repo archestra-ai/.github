@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.46.1](https://github.com/archestra-ai/.github/compare/v1.46.0...v1.46.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **release-publish:** attest with the v1.46.0 actions, whose malware scan covers every directory level ([#159](https://github.com/archestra-ai/.github/issues/159)) ([64a2822](https://github.com/archestra-ai/.github/commit/64a2822b2a703cacb19e9eed0b3e73acb81872ae))
+
 ## [1.46.0](https://github.com/archestra-ai/.github/compare/v1.45.8...v1.46.0) (2026-11-27)
 
 
