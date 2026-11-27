@@ -14,7 +14,7 @@ not block.
 | --- | --- |
 | `.github/dependabot.yml` exists when the repository has GitHub Actions workflows or npm, pnpm, Bun, Cargo or Go dependencies | fail |
 | Every workflow is onboarded to `.github/workflows/actions.lock` and every locked commit still verifies upstream (see [Workflow lockfile](#workflow-lockfile)) | fail |
-| Every `uses:` in a composite action (`action.yml`) is pinned to a full commit SHA (see [Workflow lockfile](#workflow-lockfile)) | fail |
+| Every `uses:` in a composite action outside `.github/` (one other repositories call) is pinned to a full commit SHA (see [Workflow lockfile](#workflow-lockfile)) | fail |
 | Every `updates` entry sets `cooldown.default-days` of 7 or more; any `semver-*-days` is 7 or more; `cooldown.include` is not used to narrow it | fail |
 | An `updates` entry exists for `github-actions`, `npm`, `bun`, `cargo` and `gomod` when used | fail |
 | An `updates` entry exists for Python (`uv` or `pip`), Docker, Compose, Terraform, Helm, dev containers and the like when used | warn |
@@ -193,10 +193,11 @@ the lockfile can cover. The extension also replaces SHA pins in workflows with
 the tag they point to; the commit moves to the lockfile, which satisfies the
 organization's SHA-pinning policy and zizmor 1.32 or newer. It does the same
 inside this repository's own composite actions (`$/` actions its workflows
-call), because its lockfile covers them there; keep those `action.yml` pins as
-SHAs and commit only the workflow and lockfile changes, since other
-repositories call the same actions without that lock. The policy check fails a
-composite action `uses:` that is not a full commit SHA. Dependabot updates the
+call), because its lockfile covers them there. For an action under
+`.github/actions/`, which only the repository itself calls, keep the tag. For
+one other repositories call (outside `.github/`, such as this repository's
+`actions/`), keep the SHA and commit only the rest: those callers get no lock
+on it. The policy check fails a non-SHA `uses:` in such an action. Dependabot updates the
 lockfile when it bumps an action in an onboarded workflow.
 
 Reusable workflows (`on: workflow_call`) use tag refs like any other workflow,

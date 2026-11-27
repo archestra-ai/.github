@@ -662,7 +662,7 @@ class CompositeActionPinTests(PolicyTest):
         - uses: {uses}
     """
 
-    def test_a_composite_action_pins_what_it_uses_to_a_commit_sha(self):
+    def test_a_published_composite_action_pins_what_it_uses_to_a_commit_sha(self):
         for uses in ("actions/attest@v4.2.2", "grafana/shared-workflows/actions/lint-pr-title@lint-pr-title/v1",
                      "actions/setup-go@b7ad1da"):
             with self.subTest(uses=uses):
@@ -674,8 +674,9 @@ class CompositeActionPinTests(PolicyTest):
             "actions/x/action.yml": self.ACTION.format(uses="actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"),
             "actions/y/action.yaml": self.ACTION.format(uses="$/actions/x"),
             "actions/z/action.yml": self.ACTION.format(uses="docker://alpine@sha256:" + "a" * 64),
-            # A workflow step's tag is locked by actions.lock.
+            # A workflow step's tag is locked by actions.lock, and so is a repository-local action's.
             ".github/workflows/ci.yml": WORKFLOW.replace("- run: echo ok", "- uses: actions/checkout@v7.0.1"),
+            ".github/actions/setup/action.yml": self.ACTION.format(uses="actions/setup-node@v7.1.0"),
         }
         self.assertFalse([f for f in self.check(files) if "not pinned to a commit SHA" in f.message])
 

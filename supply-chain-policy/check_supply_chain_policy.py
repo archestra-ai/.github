@@ -1119,16 +1119,18 @@ DOCKER_INSTALL_RULES = (
 
 
 def check_composite_action_pins(repo: Repository) -> list[Finding]:
-    """A composite action pins every action it uses to a full commit SHA.
+    """A composite action other repositories call pins what it uses to a full commit SHA.
 
-    The workflow lockfile covers a workflow's own `uses:`, and this repository's
+    The workflow lockfile covers a workflow's own `uses:`, and the repository's
     local (`$/`) actions as its own workflows call them, so `gh actions-lock`
-    rewrites a SHA pin there to the tag it points to. A repository calling the
-    action from elsewhere gets no such lock: a tag in its `action.yml` is
-    resolved when the job runs, and can be moved.
+    rewrites a SHA pin in either to the tag it points to. A repository calling
+    the action from elsewhere gets no such lock: a tag in its `action.yml` is
+    resolved when the job runs, and can be moved. Actions under `.github/` are
+    the repository's own (no other repository calls one), so their tags stand.
     """
     findings = []
-    for path in sorted(p for p in repo.files if name(p) in ("action.yml", "action.yaml")):
+    published = (p for p in repo.files if name(p) in ("action.yml", "action.yaml") and not p.startswith(".github/"))
+    for path in sorted(published):
         try:
             document = repo.yaml(path)
         except ParseError:
@@ -1144,8 +1146,8 @@ def check_composite_action_pins(repo: Repository) -> list[Finding]:
                     Finding(
                         FAIL,
                         path,
-                        f"`uses: {uses}` is not pinned to a commit SHA; a caller's lockfile does not lock "
-                        "a composite action's own `uses:`.",
+                        f"`uses: {uses}` is not pinned to a commit SHA; another repository's lockfile does "
+                        "not lock a composite action's own `uses:`.",
                         "Pin the full commit SHA with the tag in a comment (`owner/action@<sha> # v1.2.3`). "
                         "If `gh actions-lock` rewrote it to a tag, keep only its workflow and lockfile changes.",
                     )
