@@ -74,7 +74,12 @@ jobs:
     name: Benchmark ${{ matrix.key }}
     needs: plan
     if: ${{ needs.plan.outputs.build == 'true' }}
-    runs-on: ${{ matrix.runner }}
+    # A repository with GCE_RUNNERS on (archestra-ai/archestra and its mirror:
+    # archestra-ai/infra gcp/ci-runners) runs its 16-core images on its
+    # single-use GCE runners: Spot for pull requests, standard VMs in the
+    # merge queue. Fork pull requests and other repositories keep the label
+    # their images.json names.
+    runs-on: ${{ vars.GCE_RUNNERS == 'on' && !github.event.pull_request.head.repo.fork && matrix.runner == 'ubuntu-24.04-16core' && (github.event_name == 'pull_request' && 'archestra-gce-16core-spot' || 'archestra-gce-16core') || matrix.runner }} # zizmor: ignore[self-hosted-runner] archestra's single-use GCE runners, behind its GCE_RUNNERS kill switch; never for fork PRs.
     timeout-minutes: 90
     permissions:
       contents: read # read the repository under check, including private ones
