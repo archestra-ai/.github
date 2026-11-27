@@ -8,13 +8,17 @@
       --on-verified fail (the default) a verified finding exits 2, so nothing
       is attested and the release stops.
 
-  malware <clamscan.log> <predicate.json> --image REF --version V
-          --database V --started T --finished T [--on-detection fail|record]
+  malware <clamscan.log> [<clamscan.log> ...] <predicate.json> --image REF --version V
+          --database V --started T --finished T [--directories N] [--on-detection fail|record]
       Reads clamscan's output (-i: only detections, then its summary) into
       the malware scan predicate: file counts, the signature database, and
-      each detection's signature and path. With --on-detection fail (the
-      default) a detection exits 2, so nothing is attested and the release
-      stops.
+      each detection's signature and path. Several logs are the parallel
+      scans of one image's files, each over its share of the directories:
+      their counts add up, and each must have finished. --directories is how
+      many directories the image holds; scans that add up to another number
+      missed some, or scanned some twice, and are not attested. With
+      --on-detection fail (the default) a detection exits 2, so nothing is
+      attested and the release stops.
 
   vulnerabilities <report.json> <predicate.json> --scanner-uri URI
           --scanner-version V --started T --finished T
@@ -69,7 +73,7 @@ def main(argv):
     secrets.add_argument("--finished", required=True)
     secrets.add_argument("--on-verified", choices=["fail", "record"], default="fail")
     malware = commands.add_parser("malware")
-    malware.add_argument("log")
+    malware.add_argument("logs", nargs="+", metavar="log")
     malware.add_argument("predicate")
     malware.add_argument("--image", required=True)
     malware.add_argument("--version", required=True)
@@ -77,6 +81,7 @@ def main(argv):
     malware.add_argument("--root", default="/scan", help="Where the image's files were mounted for the scan")
     malware.add_argument("--started", required=True)
     malware.add_argument("--finished", required=True)
+    malware.add_argument("--directories", type=int, help="How many directories the scans together had to cover")
     malware.add_argument("--on-detection", choices=["fail", "record"], default="fail")
     vulnerabilities = commands.add_parser("vulnerabilities")
     vulnerabilities.add_argument("report")
@@ -148,31 +153,41 @@ def secrets_predicate(args):
 
 
 def malware_predicate(args):
-    detections, errors, summary = [], 0, {}
-    with open(args.log, encoding="utf-8", errors="replace") as log:
-        for line in log:
-            line = line.rstrip("\n")
-            if match := DETECTION.match(line):
-                path = match["path"].removeprefix(args.root) or "/"
-                detections.append({"path": path, "signature": match["signature"]})
-            elif SCAN_ERROR.match(line):
-                errors += 1
-            elif ": " in line:
-                key, value = line.split(": ", 1)
-                summary[key.strip()] = value.strip()
-    if "Scanned files" not in summary or "Infected files" not in summary:
-        raise ValueError(f"{args.log} has no clamscan summary; the scan did not finish")
-    infected = int(summary["Infected files"])
+    detections, errors = [], 0
+    totals = {"Scanned files": 0, "Scanned directories": 0, "Infected files": 0}
+    signatures = 0
+    for path in args.logs:
+        summary = {}
+        with open(path, encoding="utf-8", errors="replace") as log:
+            for line in log:
+                line = line.rstrip("\n")
+                if match := DETECTION.match(line):
+                    found = match["path"].removeprefix(args.root) or "/"
+                    detections.append({"path": found, "signature": match["signature"]})
+                elif SCAN_ERROR.match(line):
+                    errors += 1
+                elif ": " in line:
+                    key, value = line.split(": ", 1)
+                    summary[key.strip()] = value.strip()
+        if "Scanned files" not in summary or "Infected files" not in summary:
+            raise ValueError(f"{path} has no clamscan summary; the scan did not finish")
+        for key in totals:
+            totals[key] += int(summary.get(key, 0))
+        # The same database for every scan.
+        signatures = max(signatures, int(summary.get("Known viruses", 0)))
+    infected = totals["Infected files"]
     if infected != len(detections):
         raise ValueError(f"clamscan reported {infected} infected file(s) but listed {len(detections)}")
+    if args.directories is not None and totals["Scanned directories"] != args.directories:
+        raise ValueError(f"clamscan scanned {totals['Scanned directories']} directories of the image's {args.directories}")
     predicate = {
         "scanner": {"uri": CLAMAV_URI, "version": args.version,
-                    "database": {"version": args.database, "signatures": int(summary.get("Known viruses", 0))}},
+                    "database": {"version": args.database, "signatures": signatures}},
         "image": args.image,
         "policy": {"failOn": "detection" if args.on_detection == "fail" else "nothing"},
         "result": {
-            "scannedFiles": int(summary["Scanned files"]),
-            "scannedDirectories": int(summary.get("Scanned directories", 0)),
+            "scannedFiles": totals["Scanned files"],
+            "scannedDirectories": totals["Scanned directories"],
             "infected": infected,
             "errors": errors,
             "detections": sorted(detections, key=lambda d: (d["path"], d["signature"])),

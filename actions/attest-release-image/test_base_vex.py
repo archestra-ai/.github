@@ -55,6 +55,7 @@ class FakeRegistry:
         self.signed = set()
         self.unlogged = set()  # signed with Docker's key, but not in Rekor
         self.databases = {}  # (reference, platform) -> apk database text
+        self.pulled = []  # the references package_db read, in order
 
     def put(self, repository, value):
         content = value if isinstance(value, bytes) else json.dumps(value).encode()
@@ -114,6 +115,7 @@ class FakeRegistry:
         return reference not in self.unlogged
 
     def package_db(self, reference, platform):
+        self.pulled.append(reference)
         database = self.databases[(reference, platform)]
         return database if isinstance(database, dict) else {"apk": database, "dpkg": []}
 
@@ -153,6 +155,19 @@ class InheritTests(unittest.TestCase):
         alpine = {"git": ("2.52.1-r0", "Q1alpine-git="), "git-init-template": ("2.52.1-r0", "Q1alpine-template=")}
         image = self.image({"linux/amd64": apk_db(**DHI_GIT), "linux/arm64": apk_db(**alpine)})
         self.assertEqual(self.inherit(image), [])
+
+    def test_pulls_a_base_only_when_the_image_may_hold_a_build_it_has_a_statement_about(self):
+        self.attest_each_platform([statement()])
+        other = {"curl": ("8.17.0-r1", "Q1curl=")}
+        image = self.image({p: apk_db(**other) for p in PLATFORMS})
+        self.assertEqual(self.inherit(image), [])
+        bases = set(self.base_manifests.values())
+        # The image's own platforms only: no statement names curl.
+        self.assertFalse(bases & set(self.registry.pulled), self.registry.pulled)
+        self.registry.pulled.clear()
+        image = self.image({p: apk_db(**DHI_GIT) for p in PLATFORMS})
+        self.assertEqual(len(self.inherit(image)), 1)
+        self.assertEqual(bases & set(self.registry.pulled), bases)
 
     def test_carries_nothing_without_a_checksum_to_compare(self):
         self.attest_each_platform([statement(purls=(GIT,))])

@@ -40,6 +40,7 @@ registry.
 """
 
 import argparse
+import concurrent.futures
 import hashlib
 import importlib.util
 import json
@@ -65,6 +66,8 @@ PINNED = re.compile(r"^(?P<repository>[^@]+?)(?::[\w][\w.-]{0,127})?@(?P<digest>
 INDEX_TYPES = ("application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json")
 HERE = Path(__file__).resolve().parent
 POLICY = HERE.parent.parent / "supply-chain-policy"
+# Bases checked at once: each is a few oras and cosign calls, and maybe a pull.
+PARALLEL = 8
 
 
 def main(argv):
@@ -107,12 +110,21 @@ def inherit(registry, *, image, subject_name, bases, single_platform="linux/amd6
         raise ValueError(f"image must be pinned by digest: {image}")
     platforms = image_platforms(registry, image, single_platform)
     product = f"pkg:oci/{subject_name.rsplit('/', 1)[-1]}"
+    packages = {platform: parse_packages(registry.package_db(ours, platform)) for platform, ours in platforms}
+    # Each base on each platform is checked on its own: registry and Rekor
+    # round trips, and a pull for a base with a statement the image may share,
+    # so they run side by side. Results are combined in order, as before.
+    pairs = [(platform, base) for platform, _ in platforms for base in bases]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(PARALLEL, len(pairs)))) as pool:
+        results = list(pool.map(lambda pair: base_statements(registry, pair[1], pair[0], packages[pair[0]]), pairs))
+    by_platform = {}
+    for (platform, _), statements in zip(pairs, results):
+        by_platform.setdefault(platform, []).append(statements)
     carried = None
-    for platform, ours in platforms:
-        packages = parse_packages(registry.package_db(ours, platform))
+    for platform, _ in platforms:
         found = {}
-        for base in bases:
-            for key, statement in base_statements(registry, base, platform, packages).items():
+        for statements in by_platform.get(platform, []):
+            for key, statement in statements.items():
                 found.setdefault(key, statement)
         # A statement about the image must hold, saying the same, on each of its platforms.
         carried = found if carried is None else {key: value for key, value in carried.items()
@@ -149,8 +161,11 @@ def base_statements(registry, base, platform, packages):
     if digest is None:
         print(f"  {base} has no {platform} image: nothing carried over from it")
         return {}
-    theirs = parse_packages(registry.package_db(f"{repository}@{digest}", platform))
-    result = {}
+    # The statements that can carry over, from the image's packages alone: it
+    # must hold the package at the version the statement names, with an
+    # identity to compare. Only then is the base pulled, to compare builds:
+    # most bases (build stages, other images' bases) share no such package.
+    candidates = []
     for document, source in vex_documents(registry, repository, digest):
         for statement in document.get("statements") or []:
             name = (statement.get("vulnerability") or {}).get("name", "")
@@ -163,23 +178,31 @@ def base_statements(registry, base, platform, packages):
                 if not match:
                     continue
                 package, version = (match["type"], match["name"]), urllib.parse.unquote(match["version"])
-                build = theirs.get(package)
-                # The base's own build of the package, and the image holds that same build:
-                # its identity proves it (a checksum, or a version only Docker's build has),
-                # so a package without one never matches.
-                if not build or build["version"] != version or not build["identity"] or packages.get(package) != build:
+                ours = packages.get(package)
+                if not ours or ours["version"] != version or not ours["identity"]:
                     continue
-                if claim in CARRIED_FOR_DOCKER_BUILDS and not build["docker"]:
+                if claim in CARRIED_FOR_DOCKER_BUILDS and not ours["docker"]:
                     continue
-                key = (name, f"pkg:{match['type']}/{match['namespace']}/{match['name']}@{match['version']}")
-                result.setdefault(key, {
-                    "status": status,
-                    "justification": justification if status == "not_affected" else None,
-                    "timestamp": statement.get("timestamp") or document.get("last_updated") or document["timestamp"],
-                    "impact": (statement.get("impact_statement") or "").strip(),
-                    "source": source,
-                    "base": base.split("@", 1)[0],
-                })
+                candidates.append((document, source, statement, name, status, justification, match, package))
+    if not candidates:
+        return {}
+    theirs = parse_packages(registry.package_db(f"{repository}@{digest}", platform))
+    result = {}
+    for document, source, statement, name, status, justification, match, package in candidates:
+        # The base's own build of the package, and the image holds that same build:
+        # its identity proves it (a checksum, or a version only Docker's build has),
+        # so a package without one never matches.
+        if theirs.get(package) != packages[package]:
+            continue
+        key = (name, f"pkg:{match['type']}/{match['namespace']}/{match['name']}@{match['version']}")
+        result.setdefault(key, {
+            "status": status,
+            "justification": justification if status == "not_affected" else None,
+            "timestamp": statement.get("timestamp") or document.get("last_updated") or document["timestamp"],
+            "impact": (statement.get("impact_statement") or "").strip(),
+            "source": source,
+            "base": base.split("@", 1)[0],
+        })
     return result
 
 
@@ -366,6 +389,9 @@ class Registry:
                 return {"apk": read(root / "apk") if found["apk"] else "", "dpkg": dpkg}
         finally:
             subprocess.run(["docker", "rm", "-f", container], capture_output=True, check=False)
+            # Its disk space, for the malware scan running meanwhile. Not forced:
+            # an image a container still uses stays.
+            subprocess.run(["docker", "image", "rm", reference], capture_output=True, check=False)
 
 
 def walk(value):

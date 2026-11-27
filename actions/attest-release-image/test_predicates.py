@@ -122,6 +122,32 @@ class PredicateTests(unittest.TestCase):
             predicates.main(["malware", str(log), str(self.root / "m.json"), "--image", f"ghcr.io/x/app@sha256:{DIGEST}",
                              "--version", "1.5.3", "--database", "1", *TIMES])
 
+    def parallel_malware(self, parts, *extra):
+        logs = []
+        for index, lines in enumerate(parts):
+            log = self.root / f"clamscan.{index}.log"
+            log.write_text("\n".join(lines) + "\n")
+            logs.append(log)
+        predicate = self.root / "malware.json"
+        status, output = self.run_main("malware", *logs, predicate, "--image", f"ghcr.io/x/app@sha256:{DIGEST}",
+                                       "--version", "1.5.3", "--database", "28189", *TIMES, *extra)
+        return status, output, json.loads(predicate.read_text())
+
+    def test_parallel_scans_add_up(self):
+        detection = "/scan/opt/app/eicar.com: Eicar-Test-Signature FOUND"
+        status, _, predicate = self.parallel_malware([self.summary(960, 0), [detection, *self.summary(40, 1)]],
+                                                     "--directories", "200", "--on-detection", "record")
+        self.assertEqual(status, 0)
+        self.assertEqual(predicate["result"], {"scannedFiles": 1000, "scannedDirectories": 200, "infected": 1, "errors": 0,
+                                               "detections": [{"path": "/opt/app/eicar.com", "signature": "Eicar-Test-Signature"}]})
+        self.assertEqual(predicate["scanner"]["database"]["signatures"], 3628278)
+
+    def test_parallel_scans_that_miss_a_directory_or_one_scan_are_not_attested(self):
+        with self.assertRaisesRegex(ValueError, "scanned 200 directories of the image's 201"):
+            self.parallel_malware([self.summary(960, 0), self.summary(40, 0)], "--directories", "201")
+        with self.assertRaisesRegex(ValueError, "no clamscan summary"):
+            self.parallel_malware([self.summary(960, 0), ["/scan/opt/app/eicar.com: Eicar-Test-Signature FOUND"]])
+
     def test_vulnerability_report_is_wrapped_in_the_cosign_predicate(self):
         report = self.root / "scout.json"
         report.write_text('{"runs": [{"results": []}]}')
