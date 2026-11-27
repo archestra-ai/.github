@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.46.2](https://github.com/archestra-ai/.github/compare/v1.46.1...v1.46.2) (2026-11-27)
+
+
+### Dependencies
+
+* bump the github-actions-dependencies group across 5 directories with 6 updates ([#161](https://github.com/archestra-ai/.github/issues/161)) ([2a152ba](https://github.com/archestra-ai/.github/commit/2a152ba813ea2eb57e0e82d4b3a7909761a06c26))
+
+
+### CI/CD
+
+* **image-benchmark:** run 16-core images on archestra's GCE runners when GCE_RUNNERS is on ([#163](https://github.com/archestra-ai/.github/issues/163)) ([0f21033](https://github.com/archestra-ai/.github/commit/0f210336550392e39571c5bbeca7894725c7488a))
+
 ## [1.46.1](https://github.com/archestra-ai/.github/compare/v1.46.0...v1.46.1) (2026-11-27)
 
 
